@@ -1,215 +1,87 @@
-
-KycSite.java
-
-package com.example.jsonreader.model;
-
-import lombok.Data;
-
-import java.util.Map;
-
-@Data
-public class KycSite {
-private String relationshipType;
-private String siteEntity;
-private String siteBnppEntity;
-private String siteCountry;
-private String siteStatus;
-private String sitePole;
-private String siteDecisionDate;
-private String siteRole;
-private Map<String, String> siteAssetFreezeFlag;
-}
-
-RiskIndustry.java
-
-package com.example.jsonreader.model;
-
-import lombok.Data;
-
-@Data
-public class RiskIndustry {
-private String riskIndustryCode;
-private String riskIndustryDescription;
-private Integer riskIndustryPercentage;
-}
-
-KycDetails.java
-
-package com.example.jsonreader.model;
-
-import lombok.Data;
-
-import java.util.List;
-
-@Data
-public class KycDetails {
-private Integer kycId;
-private String kycSegment;
-private List<KycSite> kycSite;
-private List<RiskIndustry> riskIndustry;
-private Identifiers identifiers;
-}
-
-KycDetailsWrapper.java
-
-package com.example.jsonreader.model;
-
-import lombok.Data;
-
-import java.util.List;
-
-@Data
-public class KycDetailsWrapper {
-private List<KycDetails> results;
-}
-
-🧠 SERVICE
-
-JsonReaderService.java
-
 package com.example.jsonreader.service;
 
 import com.example.jsonreader.model.*;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.core.io.ClassPathResource;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
-import java.io.InputStream;
+import java.io.FileWriter;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class JsonReaderService {
 
-pgsql
-Copy
-Edit
-private final List<KycDetails> mergedData = new ArrayList<>();
+    private final ObjectMapper mapper = new ObjectMapper();
+    private List<KycDetails> mergedData = new ArrayList<>();
 
-public void loadAndMergeData() {
-    try {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+    @PostConstruct
+    public void loadAndMergeData() {
+        try {
+            // Read KYC details
+            KycDetailsWrapper kycWrapper = mapper.readValue(
+                    new File("src/main/resources/kycDetails.json"),
+                    KycDetailsWrapper.class
+            );
+            List<KycDetails> kycList = kycWrapper.getResults();
 
-        // Read entities.json
-        InputStream entityStream = new ClassPathResource("entities.json").getInputStream();
-        EntityResponse entityResponse = mapper.readValue(entityStream, EntityResponse.class);
+            // Build kycMap
+            Map<Integer, KycDetails> kycMap = kycList.stream()
+                    .filter(k -> k.getKycId() != null)
+                    .collect(Collectors.toMap(KycDetails::getKycId, Function.identity()));
 
-        // Read kyc_details.json
-        InputStream kycStream = new ClassPathResource("kyc_details.json").getInputStream();
-        KycDetailsWrapper kycWrapper = mapper.readValue(kycStream, KycDetailsWrapper.class);
+            // Read Entity details
+            EntityResponse entityResponse = mapper.readValue(
+                    new File("src/main/resources/entities.json"),
+                    EntityResponse.class
+            );
 
-        // Build kyc map
-        Map<Integer, KycDetails> kycMap = kycWrapper.getResults().stream()
-                .filter(k -> k.getKycId() != null)
-                .collect(Collectors.toMap(KycDetails::getKycId, k -> k));
+            mergedData = entityResponse.getResults().stream()
+                    .map(Wrapper::getEntity)
+                    .filter(Objects::nonNull)
+                    .map(entity -> {
+                        List<Identifiers> ids = entity.getIdentifiers();
+                        if (ids != null && !ids.isEmpty()) {
+                            Integer kycId = ids.get(0).getKycId();
+                            System.out.println("Checking entity with kycId: " + kycId);
+                            KycDetails match = kycMap.get(kycId);
+                            if (match != null) {
+                                match.setIdentifiers(ids);
+                                return match;
+                            }
+                        }
+                        return null;
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
 
-        entityResponse.getResults().stream()
-                .map(Wrapper::getEntity)
-                .filter(entity -> entity.getIdentifiers() != null && entity.getIdentifiers().getKycId() != null)
-                .map(entity -> {
-                    Integer kycId = entity.getIdentifiers().getKycId();
-                    KycDetails match = kycMap.get(kycId);
-                    if (match != null) {
-                        match.setIdentifiers(entity.getIdentifiers());
-                        return match;
-                    }
-                    return null;
-                })
-                .filter(Objects::nonNull)
-                .forEach(mergedData::add);
+            if (mergedData.isEmpty()) {
+                System.out.println("❌ No matching KYC records found.");
+            } else {
+                System.out.println("✅ Merged KYC records: ");
+                mergedData.forEach(k -> {
+                    System.out.println("kycSegment: " + k.getKycSegment());
+                    System.out.println("kycSite: " + k.getKycSite());
+                    System.out.println("riskIndustry: " + k.getRiskIndustry());
+                    System.out.println("identifiers: " + k.getIdentifiers());
+                    System.out.println("------------------------------");
+                });
 
-        if (mergedData.isEmpty()) {
-            System.out.println("❌ No matching KYC records found.");
-        } else {
-            mergedData.forEach(kyc -> {
-                System.out.println("➡ identifiers: " + kyc.getIdentifiers());
-                if (kyc.getKycSegment() != null) System.out.println("   kycSegment: " + kyc.getKycSegment());
-                if (kyc.getKycSite() != null) System.out.println("   kycSite: " + kyc.getKycSite());
-                if (kyc.getRiskIndustry() != null) System.out.println("   riskIndustry: " + kyc.getRiskIndustry());
-                System.out.println("------------------------------------------------");
-            });
+                // Save merged output
+                mapper.writerWithDefaultPrettyPrinter()
+                        .writeValue(new FileWriter("src/main/resources/merged_output.json"), mergedData);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-
-        File output = new File("src/main/resources/output/merged_output.json");
-        output.getParentFile().mkdirs();
-        mapper.writerWithDefaultPrettyPrinter().writeValue(output, mergedData);
-
-    } catch (Exception e) {
-        System.err.println("❌ Error processing: " + e.getMessage());
-        e.printStackTrace();
     }
-}
 
-public List<KycDetails> getMergedData() {
-    return mergedData;
-}
-}
-
-🧪 CONTROLLER
-
-EntityController.java
-
-package com.example.jsonreader.controller;
-
-import com.example.jsonreader.model.KycDetails;
-import com.example.jsonreader.service.JsonReaderService;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-
-@RestController
-@RequestMapping("/api/kyc")
-public class EntityController {
-
-kotlin
-Copy
-Edit
-private final JsonReaderService jsonReaderService;
-
-public EntityController(JsonReaderService jsonReaderService) {
-    this.jsonReaderService = jsonReaderService;
-}
-
-@GetMapping("/merged")
-public List<KycDetails> getMergedData() {
-    return jsonReaderService.getMergedData();
-}
-}
-
-🚀 APPLICATION RUNNER
-
-JsonReaderApplication.java
-
-package com.example.jsonreader;
-
-import com.example.jsonreader.service.JsonReaderService;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-
-@SpringBootApplication
-public class JsonReaderApplication implements CommandLineRunner {
-
-arduino
-Copy
-Edit
-private final JsonReaderService jsonReaderService;
-
-public JsonReaderApplication(JsonReaderService jsonReaderService) {
-    this.jsonReaderService = jsonReaderService;
-}
-
-public static void main(String[] args) {
-    SpringApplication.run(JsonReaderApplication.class, args);
-}
-
-@Override
-public void run(String... args) {
-    jsonReaderService.loadAndMergeData();
-}
+    public List<KycDetails> getMergedData() {
+        return mergedData;
+    }
 }
