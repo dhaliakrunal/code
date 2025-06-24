@@ -59,3 +59,19 @@ public void loadAndMergeData() {
 public List<KycDetails> getMergedData() {
     return mergedData;
 }
+
+
+
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Service;
+
+import java.io.File;
+import java.io.InputStream;
+import java.util.*;
+import java.util.stream.Collectors;
