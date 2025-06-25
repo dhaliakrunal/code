@@ -1,143 +1,87 @@
 package com.example.jsonreader.service;
 
 import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 @Service
 public class JsonReaderService {
 
-    private final ObjectMapper mapper = new ObjectMapper();
-    private final List<MergedOutput> mergedData = new ArrayList<>();
-
-    @PostConstruct
-    public void loadAndMergeData() {
+    public void mergeAndDisplayData() {
         try {
-            // Load KYC details
-            InputStream kycStream = new ClassPathResource("kycDetails.json").getInputStream();
-            KycDetailsWrapper kycWrapper = mapper.readValue(kycStream, KycDetailsWrapper.class);
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-            // Load entities
-            InputStream entityStream = new ClassPathResource("entities.json").getInputStream();
+            // Read entity JSON
+            InputStream entityStream = new ClassPathResource("data/entities.json").getInputStream();
             EntityResponse entityResponse = mapper.readValue(entityStream, EntityResponse.class);
 
-            // Merge by kycId using List matching
-            for (Wrapper w : entityResponse.getResults()) {
-                EntityData entity = w.getEntity();
-                if (entity != null && entity.getIdentifiers() != null && !entity.getIdentifiers().isEmpty()) {
-                    Integer kycId = entity.getIdentifiers().get(0).getKycId();
-                    if (kycId != null) {
-                        for (KycDetails kd : kycWrapper.getResults()) {
-                            if (kd.getIdentifiers() != null && !kd.getIdentifiers().isEmpty()
-                                    && kycId.equals(kd.getIdentifiers().get(0).getKycId())) {
-                                MergedOutput out = new MergedOutput();
-                                out.setIdentifiers(entity.getIdentifiers());
-                                out.setBusinessGroup(entity.getBusinessGroup());
-                                out.setKycSegment(kd.getKycSegment());
-                                out.setKycSite(kd.getKycSite());
-                                out.setRiskIndustry(kd.getRiskIndustry());
-                                mergedData.add(out);
-                                break;
-                            }
+            // Read KYC JSON
+            InputStream kycStream = new ClassPathResource("data/kycDetails.json").getInputStream();
+            KycDetailsWrapper kycWrapper = mapper.readValue(kycStream, KycDetailsWrapper.class);
+
+            List<Wrapper> entities = entityResponse.getResults();
+            List<KycDetails> kycDetailsList = kycWrapper.getResults();
+
+            // Create a map of kycId → KycDetails
+            Map<Integer, KycDetails> kycMap = new HashMap<>();
+            for (KycDetails kyc : kycDetailsList) {
+                if (kyc.getIdentifiers() != null && !kyc.getIdentifiers().isEmpty()) {
+                    Integer kycId = kyc.getIdentifiers().get(0).getKycId();
+                    kycMap.put(kycId, kyc);
+                }
+            }
+
+            // Merge and display
+            for (Wrapper wrapper : entities) {
+                EntityData entity = wrapper.getEntity();
+                List<Identifiers> identifiersList = (List<Identifiers>) entity.getIdentifiers().get("identifiers");
+
+                if (identifiersList != null && !identifiersList.isEmpty()) {
+                    Integer kycId = identifiersList.get(0).getKycId();
+
+                    if (kycMap.containsKey(kycId)) {
+                        KycDetails kyc = kycMap.get(kycId);
+
+                        System.out.println("\n==== Merged Record ====");
+                        System.out.println("--- Identifiers ---");
+                        for (Identifiers id : identifiersList) {
+                            System.out.println("ptyId: " + id.getPtyId());
+                            System.out.println("crdsCode: " + id.getCrdsCode());
+                            System.out.println("kycId: " + id.getKycId());
                         }
+
+                        System.out.println("\n--- Business Group ---");
+                        wrapper.getBusinessGroup().forEach((k, v) -> System.out.println(k + ": " + v));
+
+                        System.out.println("\n--- KYC Segment ---");
+                        System.out.println(kyc.getKycSegment());
+
+                        System.out.println("\n--- KYC Site ---");
+                        if (kyc.getKycSite() != null) {
+                            kyc.getKycSite().forEach(site ->
+                                    System.out.println("Site: " + site.toString()));
+                        }
+
+                        System.out.println("\n--- Risk Industry ---");
+                        if (kyc.getKycRiskIndustry() != null) {
+                            kyc.getKycRiskIndustry().forEach(risk ->
+                                    System.out.println("Risk: " + risk.toString()));
+                        }
+
+                        System.out.println("========================");
                     }
                 }
             }
 
-            // Print result to console
-            if (mergedData.isEmpty()) {
-                System.out.println("❌ No records merged.");
-            } else {
-                System.out.println("✅ Merged Records:");
-                for (MergedOutput mo : mergedData) {
-                    System.out.println(mo);
-                }
-            }
-
         } catch (Exception e) {
+            System.err.println("Error during merging: " + e.getMessage());
             e.printStackTrace();
         }
     }
-
-    public List<MergedOutput> getMergedData() {
-        return mergedData;
-    }
 }
-
-
-
-
-
-
-package com.example.jsonreader.controller;
-
-import com.example.jsonreader.model.MergedOutput;
-import com.example.jsonreader.service.JsonReaderService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-
-@RestController
-@RequestMapping("/api")
-@RequiredArgsConstructor
-public class EntityController {
-
-    private final JsonReaderService service;
-
-    @GetMapping("/merged")
-    public List<MergedOutput> getMergedData() {
-        return service.getMergedData();
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-package com.example.jsonreader;
-
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import com.example.jsonreader.service.JsonReaderService;
-
-@SpringBootApplication
-public class JsonReaderApplication implements CommandLineRunner {
-
-    private final JsonReaderService service;
-
-    public JsonReaderApplication(JsonReaderService service) {
-        this.service = service;
-    }
-
-    public static void main(String[] args) {
-        SpringApplication.run(JsonReaderApplication.class, args);
-    }
-
-    @Override
-    public void run(String... args) {
-        // Data printed during @PostConstruct
-    }
-}
-
-
-
-
-
-
-
-
-
