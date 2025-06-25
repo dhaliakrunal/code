@@ -330,3 +330,48 @@ public List<MergedOutput> mergeAndDisplayData() {
 
     return mergedResults;
 }
+
+
+
+
+
+
+
+
+
+
+
+private final JsonReaderService jsonReaderService;
+
+public EntityController(JsonReaderService jsonReaderService) {
+    this.jsonReaderService = jsonReaderService;
+}
+
+// Existing endpoint
+@GetMapping("/merged")
+public List<MergedOutput> getMergedData() {
+    return jsonReaderService.mergeAndDisplayData();
+}
+
+// ✅ New endpoint to download merged_output.json
+@GetMapping("/download")
+public ResponseEntity<Resource> downloadMergedJson() {
+    try {
+        File file = new File("src/main/resources/output/merged_output.json");
+        if (!file.exists()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        InputStreamResource resource = new InputStreamResource(new FileInputStream(file));
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment;filename=" + file.getName())
+                .contentType(MediaType.APPLICATION_JSON)
+                .contentLength(file.length())
+                .body(resource);
+
+    } catch (Exception e) {
+        return ResponseEntity.internalServerError().build();
+    }
+}
+
