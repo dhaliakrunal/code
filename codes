@@ -1,6 +1,7 @@
 package com.example.jsonreader.service;
 
 import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.io.ClassPathResource;
@@ -14,91 +15,77 @@ import java.util.List;
 @Service
 public class JsonReaderService {
 
-csharp
+pgsql
 Copy
 Edit
-private final List<MergedOutput> mergedResults = new ArrayList<>();
-
 public List<MergedOutput> mergeAndDisplayData() {
-    mergedResults.clear(); // Ensure it's fresh every call
+    List<MergedOutput> mergedResults = new ArrayList<>();
 
     try {
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
 
-        // Read entities.json
         InputStream entityStream = new ClassPathResource("data/entities.json").getInputStream();
-        EntityResponse entityResponse = mapper.readValue(entityStream, EntityResponse.class);
-        List<Wrapper> entityList = entityResponse.getResults();
-
-        // Read kycDetails.json
         InputStream kycStream = new ClassPathResource("data/kycDetails.json").getInputStream();
+
+        EntityResponse entityResponse = mapper.readValue(entityStream, EntityResponse.class);
         KycDetailsWrapper kycWrapper = mapper.readValue(kycStream, KycDetailsWrapper.class);
+
+        List<Wrapper> entityList = entityResponse.getResults();
         List<KycDetails> kycList = kycWrapper.getResults();
 
-        // Merge using forEach + stream + List only
-        entityList.forEach(wrapper -> {
-            EntityData entityData = wrapper.getEntity();
-            List<Identifiers> entityIdentifiers = entityData.getIdentifiers();
-
-            if (entityIdentifiers != null && !entityIdentifiers.isEmpty()) {
-                entityIdentifiers.forEach(eid -> {
-                    kycList.stream()
-                            .filter(kyc -> kyc.getIdentifiers() != null)
-                            .filter(kyc -> kyc.getIdentifiers().stream().anyMatch(kid -> kid.getKycId().equals(eid.getKycId())))
-                            .findFirst()
-                            .ifPresent(matchedKyc -> {
-                                MergedOutput output = new MergedOutput();
-                                output.setIdentifiers(entityIdentifiers);
-                                output.setBusinessGroup(wrapper.getBusinessGroup());
-                                output.setKycSegment(matchedKyc.getKycSegment());
-                                output.setKycSite(matchedKyc.getKycSite());
-                                output.setKycRiskIndustry(matchedKyc.getKycRiskIndustry());
-
-                                mergedResults.add(output);
-                            });
-                });
+        for (Wrapper wrapper : entityList) {
+            List<Identifiers> entityIds = wrapper.getEntity().getIdentifiers();
+            if (entityIds != null && !entityIds.isEmpty()) {
+                for (Identifiers eid : entityIds) {
+                    for (KycDetails kyc : kycList) {
+                        if (kyc.getIdentifiers() != null) {
+                            for (Identifiers kid : kyc.getIdentifiers()) {
+                                if (eid.getKycId().equals(kid.getKycId())) {
+                                    MergedOutput output = new MergedOutput();
+                                    output.setIdentifiers(List.of(eid));
+                                    output.setBusinessGroup(wrapper.getBusinessGroup());
+                                    output.setKycSegment(kyc.getKycSegment());
+                                    output.setKycSite(kyc.getKycSite());
+                                    output.setKycRiskIndustry(kyc.getKycRiskIndustry());
+                                    mergedResults.add(output);
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        });
+        }
 
         // Print to console
         mergedResults.forEach(output -> {
-            System.out.println("\n==== Merged Output ====");
-            output.getIdentifiers().forEach(id -> {
-                System.out.println("ptyId: " + id.getPtyId());
-                System.out.println("crdsCode: " + id.getCrdsCode());
-                System.out.println("kycId: " + id.getKycId());
-            });
-
+            System.out.println("\n===== Merged Output =====");
+            if (output.getIdentifiers() != null) {
+                output.getIdentifiers().forEach(id ->
+                        System.out.printf("ptyId: %s, crdsCode: %s, kycId: %s%n",
+                                id.getPtyId(), id.getCrdsCode(), id.getKycId()));
+            }
             if (output.getBusinessGroup() != null) {
-                System.out.println("--- Business Group ---");
-                output.getBusinessGroup().forEach((k, v) -> System.out.println(k + ": " + v));
+                System.out.println("Business Group: " + output.getBusinessGroup().getName());
             }
-
-            System.out.println("--- KYC Segment ---");
-            System.out.println(output.getKycSegment());
-
+            if (output.getKycSegment() != null) {
+                System.out.println("KYC Segment: " + output.getKycSegment());
+            }
             if (output.getKycSite() != null) {
-                System.out.println("--- KYC Site ---");
-                output.getKycSite().forEach(site -> System.out.println(site.toString()));
+                output.getKycSite().forEach(site ->
+                        System.out.println("Site Entity: " + site.getSiteEntity()));
             }
-
             if (output.getKycRiskIndustry() != null) {
-                System.out.println("--- Risk Industry ---");
-                output.getKycRiskIndustry().forEach(risk -> System.out.println(risk.toString()));
+                output.getKycRiskIndustry().forEach(risk ->
+                        System.out.println("Risk Industry: " + risk.getRiskIndustryDescription()));
             }
-
-            System.out.println("=====================");
         });
 
-        // ✅ Save to file
-        mapper.writerWithDefaultPrettyPrinter()
-              .writeValue(new File("merged_output.json"), mergedResults);
-
-        System.out.println("\n✅ Merged data written to merged_output.json");
+        // Save to JSON file
+        mapper.writeValue(new File("merged_output.json"), mergedResults);
 
     } catch (Exception e) {
-        System.err.println("❌ Error during merging: " + e.getMessage());
         e.printStackTrace();
     }
 
