@@ -236,3 +236,97 @@ public class JsonReaderService {
         return mergedResults;
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+public List<MergedOutput> mergeAndDisplayData() {
+    List<MergedOutput> mergedResults = new ArrayList<>();
+
+    try {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        // Read entities.json
+        InputStream entityStream = new ClassPathResource("data/entities.json").getInputStream();
+        EntityResponse entityResponse = mapper.readValue(entityStream, EntityResponse.class);
+        List<Wrapper> wrappers = entityResponse.getResults();
+
+        // Read kycDetails.json
+        InputStream kycStream = new ClassPathResource("data/kycDetails.json").getInputStream();
+        KycDetailsWrapper kycWrapper = mapper.readValue(kycStream, KycDetailsWrapper.class);
+        List<KycDetails> kycDetailsList = kycWrapper.getResults();
+
+        for (Wrapper wrapper : wrappers) {
+            List<Identifiers> entityIdentifiers = wrapper.getEntity().getIdentifiers();
+
+            for (Identifiers entityId : entityIdentifiers) {
+                for (KycDetails kyc : kycDetailsList) {
+                    if (kyc.getIdentifiers() != null) {
+                        for (Identifiers kycId : kyc.getIdentifiers()) {
+                            if (kycId.getKycId() != null && kycId.getKycId().equals(entityId.getKycId())) {
+                                MergedOutput output = new MergedOutput();
+                                output.setIdentifiers(entityIdentifiers);
+                                output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                                if (kyc.getKycData() != null) {
+                                    output.setKycSegment(kyc.getKycData().getKycSegment());
+                                    output.setKycSite(kyc.getKycData().getKycSite());
+                                    output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                }
+
+                                mergedResults.add(output);
+
+                                // ✅ Print to Console
+                                System.out.println("\n==== Merged Record ====");
+                                entityIdentifiers.forEach(id -> {
+                                    System.out.println("ptyId: " + id.getPtyId());
+                                    System.out.println("crdsCode: " + id.getCrdsCode());
+                                    System.out.println("kycId: " + id.getKycId());
+                                });
+
+                                System.out.println("\n--- Business Group ---");
+                                System.out.println(wrapper.getBusinessGroup());
+
+                                if (output.getKycSegment() != null) {
+                                    System.out.println("\n--- KYC Segment ---");
+                                    System.out.println(output.getKycSegment());
+                                }
+
+                                if (output.getKycSite() != null) {
+                                    System.out.println("\n--- KYC Site ---");
+                                    output.getKycSite().forEach(site -> System.out.println(site));
+                                }
+
+                                if (output.getKycRiskIndustry() != null) {
+                                    System.out.println("\n--- Risk Industry ---");
+                                    output.getKycRiskIndustry().forEach(risk -> System.out.println(risk));
+                                }
+
+                                System.out.println("=========================");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Save to merged_output.json
+        mapper.writerWithDefaultPrettyPrinter().writeValue(new File("merged_output.json"), mergedResults);
+        System.out.println("✅ Merged output written to merged_output.json");
+
+    } catch (Exception e) {
+        System.err.println("❌ Error during merging: " + e.getMessage());
+        e.printStackTrace();
+    }
+
+    return mergedResults;
+}
