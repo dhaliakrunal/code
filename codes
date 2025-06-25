@@ -85,3 +85,20 @@ public class JsonReaderService {
         }
     }
 }
+
+
+
+
+
+BusinessGroup bg = wrapper.getBusinessGroup();
+if (bg != null) {
+    System.out.println("businessGroupCode: " + bg.getBusinessGroupCode());
+    System.out.println("name: " + bg.getName());
+    System.out.println("businessCountry: " + bg.getBusinessCountry());
+    System.out.println("responsibleEntityCode: " + bg.getResponsibleEntityCode());
+    System.out.println("responsibleEntityName: " + bg.getResponsibleEntityName());
+    System.out.println("coverage: " + bg.getCoverage());
+    System.out.println("lastUpdatedDate: " + bg.getLastUpdatedDate());
+} else {
+    System.out.println("No business group data");
+}
