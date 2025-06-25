@@ -102,3 +102,75 @@ if (bg != null) {
 } else {
     System.out.println("No business group data");
 }
+
+
+
+
+
+
+
+
+
+public void mergeAndDisplayData() {
+try {
+ObjectMapper mapper = new ObjectMapper();
+mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+mapper.enable(SerializationFeature.INDENT_OUTPUT); // for pretty printing
+
+pgsql
+Copy
+Edit
+    InputStream entityStream = new ClassPathResource("data/entities.json").getInputStream();
+    EntityResponse entityResponse = mapper.readValue(entityStream, EntityResponse.class);
+
+    InputStream kycStream = new ClassPathResource("data/kycDetails.json").getInputStream();
+    KycDetailsWrapper kycWrapper = mapper.readValue(kycStream, KycDetailsWrapper.class);
+
+    List<Wrapper> entities = entityResponse.getResults();
+    List<KycDetails> kycDetailsList = kycWrapper.getResults();
+
+    Map<Integer, KycDetails> kycMap = new HashMap<>();
+    for (KycDetails kyc : kycDetailsList) {
+        if (kyc.getIdentifiers() != null && !kyc.getIdentifiers().isEmpty()) {
+            Integer kycId = kyc.getIdentifiers().get(0).getKycId();
+            kycMap.put(kycId, kyc);
+        }
+    }
+
+    List<MergedOutput> mergedList = new ArrayList<>();
+
+    for (Wrapper wrapper : entities) {
+        EntityData entity = wrapper.getEntity();
+        List<Identifiers> identifiersList = (List<Identifiers>) entity.getIdentifiers().get("identifiers");
+
+        if (identifiersList != null && !identifiersList.isEmpty()) {
+            Integer kycId = identifiersList.get(0).getKycId();
+
+            if (kycMap.containsKey(kycId)) {
+                KycDetails kyc = kycMap.get(kycId);
+
+                MergedOutput merged = new MergedOutput();
+                merged.setIdentifiers(identifiersList);
+                merged.setBusinessGroup(wrapper.getBusinessGroup());
+                merged.setKycSegment(kyc.getKycSegment());
+                merged.setKycSite(kyc.getKycSite());
+                merged.setKycRiskIndustry(kyc.getKycRiskIndustry());
+
+                mergedList.add(merged);
+
+                // Optional console print
+                System.out.println("Merged data for kycId: " + kycId);
+            }
+        }
+    }
+
+    // Write merged list to a JSON file
+    File outputFile = new File("merged_output.json");
+    mapper.writeValue(outputFile, mergedList);
+    System.out.println("Merged data written to file: merged_output.json");
+
+} catch (Exception e) {
+    System.err.println("Error during merging: " + e.getMessage());
+    e.printStackTrace();
+}
+}
