@@ -1,22 +1,29 @@
-✅ 1. application.properties
+Let me provide the full updated and final versions of:
 
-Place this in src/main/resources/application.properties:
+application.properties
 
-json.entities-path=classpath:data/entities.json
-json.kyc-path=classpath:data/kycDetails.json
+JsonFileProperties.java
+
+JsonReaderService.java
+
+JsonReaderController.java (minor if change)
+
+application.properties (already done)
+json.entities-path=data/entities.json
+json.kyc-path=data/kycDetails.json
 json.output-path=merged_output.json
 
-✅ 2. JsonFileProperties.java
-
-Place this in a new config package (e.g., src/main/java/com/example/jsonreader/config/JsonFileProperties.java):
+JsonFileProperties.java
 
 package com.example.jsonreader.config;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
-@Data
+@Getter
+@Setter
 @Configuration
 @ConfigurationProperties(prefix = "json")
 public class JsonFileProperties {
@@ -25,41 +32,7 @@ private String kycPath;
 private String outputPath;
 }
 
-✅ 3. JsonReaderApplication.java (Enable the config)
-
-package com.example.jsonreader;
-
-import com.example.jsonreader.config.JsonFileProperties;
-import com.example.jsonreader.service.JsonReaderService;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
-
-@SpringBootApplication
-@EnableConfigurationProperties(JsonFileProperties.class)
-public class JsonReaderApplication implements CommandLineRunner {
-
-arduino
-Copy
-Edit
-private final JsonReaderService jsonReaderService;
-
-public JsonReaderApplication(JsonReaderService jsonReaderService) {
-    this.jsonReaderService = jsonReaderService;
-}
-
-public static void main(String[] args) {
-    SpringApplication.run(JsonReaderApplication.class, args);
-}
-
-@Override
-public void run(String... args) {
-    jsonReaderService.mergeAndDisplayData();
-}
-}
-
-✅ 4. Updated JsonReaderService.java
+JsonReaderService.java (Updated to use injected config)
 
 package com.example.jsonreader.service;
 
@@ -67,8 +40,7 @@ import com.example.jsonreader.config.JsonFileProperties;
 import com.example.jsonreader.model.*;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -84,11 +56,9 @@ pgsql
 Copy
 Edit
 private final JsonFileProperties properties;
-private final ResourceLoader resourceLoader;
 
-public JsonReaderService(JsonFileProperties properties, ResourceLoader resourceLoader) {
+public JsonReaderService(JsonFileProperties properties) {
     this.properties = properties;
-    this.resourceLoader = resourceLoader;
 }
 
 public List<MergedOutput> mergeAndDisplayData() {
@@ -98,56 +68,57 @@ public List<MergedOutput> mergeAndDisplayData() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-        // Load entity and KYC files
-        Resource entityRes = resourceLoader.getResource(properties.getEntitiesPath());
-        Resource kycRes = resourceLoader.getResource(properties.getKycPath());
-
-        InputStream entityStream = entityRes.getInputStream();
-        InputStream kycStream = kycRes.getInputStream();
-
+        // Read entities.json
+        InputStream entityStream = new ClassPathResource(properties.getEntitiesPath()).getInputStream();
         EntityResponse entityResponse = mapper.readValue(entityStream, EntityResponse.class);
-        KycDetailsWrapper kycWrapper = mapper.readValue(kycStream, KycDetailsWrapper.class);
-
         List<Wrapper> wrappers = entityResponse.getResults();
+
+        // Read kycDetails.json
+        InputStream kycStream = new ClassPathResource(properties.getKycPath()).getInputStream();
+        KycDetailsWrapper kycWrapper = mapper.readValue(kycStream, KycDetailsWrapper.class);
         List<KycDetails> kycDetailsList = kycWrapper.getResults();
 
-        for (Wrapper wrapper : wrappers) {
-            List<Identifiers> entityIdentifiers = wrapper.getEntity().getIdentifiers();
-            if (entityIdentifiers == null) continue;
+        // Merge logic
+        wrappers.stream()
+                .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                .forEach(wrapper -> {
+                    List<Identifiers> entityIds = wrapper.getEntity().getIdentifiers();
+                    entityIds.stream()
+                            .filter(eid -> eid.getKycId() != null)
+                            .forEach(entityId -> {
+                                kycDetailsList.stream()
+                                        .filter(kyc -> kyc.getIdentifiers() != null)
+                                        .flatMap(kyc -> kyc.getIdentifiers().stream()
+                                                .filter(kid -> kid.getKycId() != null && Objects.equals(kid.getKycId(), entityId.getKycId()))
+                                                .map(kid -> new AbstractMap.SimpleEntry<>(kyc, kid)))
+                                        .findFirst()
+                                        .ifPresent(match -> {
+                                            KycDetails kyc = match.getKey();
 
-            for (Identifiers entityId : entityIdentifiers) {
-                for (KycDetails kyc : kycDetailsList) {
-                    if (kyc.getIdentifiers() == null) continue;
+                                            MergedOutput output = new MergedOutput();
+                                            output.setIdentifiers(entityIds);
+                                            output.setBusinessGroup(wrapper.getBusinessGroup());
 
-                    for (Identifiers kycId : kyc.getIdentifiers()) {
-                        if (kycId.getKycId() != null && Objects.equals(kycId.getKycId(), entityId.getKycId())) {
-                            MergedOutput output = new MergedOutput();
-                            output.setIdentifiers(entityIdentifiers);
-                            output.setBusinessGroup(wrapper.getBusinessGroup());
+                                            if (kyc.getKycData() != null) {
+                                                output.setKycSegment(kyc.getKycData().getKycSegment());
+                                                output.setKycSite(kyc.getKycData().getKycSite());
+                                                output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                            }
 
-                            if (kyc.getKycData() != null) {
-                                output.setKycSegment(kyc.getKycData().getKycSegment());
-                                output.setKycSite(kyc.getKycData().getKycSite());
-                                output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
-                            }
+                                            mergedResults.add(output);
+                                        });
+                            });
+                });
 
-                            mergedResults.add(output);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+        // Save to merged_output.json
+        mapper.writerWithDefaultPrettyPrinter().writeValue(new File(properties.getOutputPath()), mergedResults);
+        System.out.println("✅ Merged output saved to: " + properties.getOutputPath());
 
-        // Save to file using path from properties
-        mapper.writerWithDefaultPrettyPrinter()
-                .writeValue(new File(properties.getOutputPath()), mergedResults);
-
-        System.out.println("✅ Merged output written to: " + properties.getOutputPath());
+        // Print to console
         mergedResults.forEach(System.out::println);
 
     } catch (Exception e) {
-        System.err.println("Error during merging: " + e.getMessage());
+        System.err.println("❌ Error during merging: " + e.getMessage());
         e.printStackTrace();
     }
 
@@ -155,4 +126,41 @@ public List<MergedOutput> mergeAndDisplayData() {
 }
 }
 
-You're all set!
+JsonReaderController.java (no change unless you renamed mergeAndDisplayData())
+
+package com.example.jsonreader.controller;
+
+import com.example.jsonreader.model.MergedOutput;
+import com.example.jsonreader.service.JsonReaderService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+public class JsonReaderController {
+
+kotlin
+Copy
+Edit
+private final JsonReaderService jsonReaderService;
+
+public JsonReaderController(JsonReaderService jsonReaderService) {
+    this.jsonReaderService = jsonReaderService;
+}
+
+@GetMapping("/merged-output")
+public List<MergedOutput> getMergedData() {
+    return jsonReaderService.mergeAndDisplayData();
+}
+}
+
+📌 Notes:
+
+merged_output.json will be written to the project root directory unless you specify full path like json/output/merged_output.json.
+
+Make sure you annotate @Configuration on JsonFileProperties and add @EnableConfigurationProperties(JsonFileProperties.class) in your main class or Spring Boot will not recognize the config.
+
+Restart the app after setting application.properties.
+
+Let me know if you want to move output to a specific folder or want a REST endpoint to download the file as well.
