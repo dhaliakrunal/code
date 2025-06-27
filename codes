@@ -336,3 +336,60 @@ public List<MergedOutput> mergeAndDisplayData() {
     return mergedResults;
 }
 }
+
+
+
+
+
+EntityController.java
+
+package com.example.jsonreader.controller;
+
+import com.example.jsonreader.model.MergedOutput;
+import com.example.jsonreader.service.JsonReaderService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+public class EntityController {
+
+kotlin
+Copy
+Edit
+private final JsonReaderService jsonReaderService;
+
+public EntityController(JsonReaderService jsonReaderService) {
+    this.jsonReaderService = jsonReaderService;
+}
+
+@GetMapping("/merged-data")
+public List<MergedOutput> getMergedData() {
+    return jsonReaderService.mergeAndDisplayData();
+}
+}
+
+Explanation:
+
+@RestController — This annotation tells Spring Boot to treat this class as a REST API controller.
+
+private final JsonReaderService jsonReaderService — Dependency injection of your service class.
+
+Constructor — Injects the service into the controller.
+
+@GetMapping("/merged-data") — When you hit this endpoint (e.g., http://localhost:8080/merged-data), it will return the merged data from both JSON files.
+
+mergeAndDisplayData() — Calls the service method that merges entities.json and kycDetails.json and returns List<MergedOutput>.
+
+Let me know if you want to customize the endpoint or response format (e.g., JSON array or file download).
+
+
+
+
+
+
+
+
+
+
