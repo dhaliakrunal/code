@@ -187,3 +187,24 @@ public class SslBypassConfig {
 
 
 
+@Bean
+public RestTemplate restTemplate() throws Exception {
+    TrustManager[] trustAllCerts = new TrustManager[]{
+        new X509TrustManager() {
+            public void checkClientTrusted(X509Certificate[] certs, String authType) {}
+            public void checkServerTrusted(X509Certificate[] certs, String authType) {}
+            public X509Certificate[] getAcceptedIssuers() { return null; }
+        }
+    };
+
+    SSLContext sslContext = SSLContext.getInstance("TLS");
+    sslContext.init(null, trustAllCerts, new SecureRandom());
+
+    CloseableHttpClient httpClient = HttpClients.custom()
+            .setSSLContext(sslContext)
+            .setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)
+            .build();
+
+    HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
+    return new RestTemplate(factory);
+}
