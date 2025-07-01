@@ -1,1 +1,153 @@
+package com.example.jsonreader.config;
+
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@Data
+@ConfigurationProperties(prefix = "json")
+public class JsonFileProperties {
+    private String entitiesApi;
+    private String kycApi;
+    private String outputPath;
+}
+
+
+
+
+json.entities-api=https://api.example.com/entities
+json.kyc-api=https://api.example.com/kycDetails
+json.output-path=src/main/resources/merged_output.json
+
+
+
+
+
+
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.config.JsonFileProperties;
+import com.example.jsonreader.model.KycWrapper;
+import com.example.jsonreader.model.Wrapper;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Arrays;
+import java.util.List;
+
+@Service
+public class ApiClientService {
+
+    private final RestTemplate restTemplate;
+    private final JsonFileProperties jsonFileProperties;
+
+    public ApiClientService(RestTemplateBuilder builder, JsonFileProperties jsonFileProperties) {
+        this.restTemplate = builder.build();
+        this.jsonFileProperties = jsonFileProperties;
+    }
+
+    public List<Wrapper> fetchEntities() {
+        Wrapper[] response = restTemplate.getForObject(jsonFileProperties.getEntitiesApi(), Wrapper[].class);
+        return Arrays.asList(response);
+    }
+
+    public List<KycWrapper> fetchKycDetails() {
+        KycWrapper[] response = restTemplate.getForObject(jsonFileProperties.getKycApi(), KycWrapper[].class);
+        return Arrays.asList(response);
+    }
+}
+
+
+
+
+@Service
+public class JsonReaderService {
+
+    private final ApiClientService apiClientService;
+    private final JsonFileProperties jsonFileProperties;
+    private final ObjectMapper objectMapper;
+
+    public JsonReaderService(ApiClientService apiClientService, JsonFileProperties jsonFileProperties) {
+        this.apiClientService = apiClientService;
+        this.jsonFileProperties = jsonFileProperties;
+        this.objectMapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    }
+
+    public List<MergedOutput> getMergedData() {
+        List<Wrapper> entities = apiClientService.fetchEntities();
+        List<KycWrapper> kycDetails = apiClientService.fetchKycDetails();
+
+        List<MergedOutput> mergedData = new ArrayList<>();
+
+        for (Wrapper wrapper : entities) {
+            EntityData entity = wrapper.getEntity();
+
+            for (Identifiers id1 : entity.getIdentifiers()) {
+                long kycId = id1.getKycId();
+
+                kycDetails.stream()
+                    .map(KycWrapper::getKycData)
+                    .filter(kyc -> kyc.getIdentifiers().stream().anyMatch(id2 -> id2.getKycId() == kycId))
+                    .findFirst()
+                    .ifPresent(matchedKyc -> {
+                        MergedOutput output = new MergedOutput();
+                        output.setIdentifiers(Collections.singletonList(id1));
+                        output.setBusinessGroup(entity.getBusinessGroup());
+                        output.setKycSegment(matchedKyc.getKycSegment());
+                        output.setKycSite(matchedKyc.getKycSite());
+                        output.setKycRiskIndustry(matchedKyc.getKycRiskIndustry());
+
+                        mergedData.add(output);
+                    });
+            }
+        }
+
+        try {
+            objectMapper.writeValue(new File(jsonFileProperties.getOutputPath()), mergedData);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return mergedData;
+    }
+}
+
+
+
+
+@Configuration
+public class AppConfig {
+
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+}
+
+
+
+
+@RestController
+@RequestMapping("/api")
+public class MergeController {
+
+    private final JsonReaderService jsonReaderService;
+
+    public MergeController(JsonReaderService jsonReaderService) {
+        this.jsonReaderService = jsonReaderService;
+    }
+
+    @GetMapping("/merged")
+    public List<MergedOutput> getMergedData() {
+        return jsonReaderService.getMergedData();
+    }
+}
+
+
+
+
+
+
+
+
 
