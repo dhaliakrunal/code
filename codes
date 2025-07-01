@@ -182,3 +182,37 @@ public void run(String... args) {
     jsonReaderService.mergeAndDisplayData();
 }
 }
+
+
+
+
+
+
+ private final RestTemplate restTemplate;
+
+    @Value("${api.url}")
+    private String apiUrl;
+
+    @Value("${api.token}")
+    private String token;
+
+    public ApiClientService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    public void fetchDataFromApi() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", token);
+        headers.setAccept(MediaType.parseMediaTypes("application/json"));
+
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                apiUrl,
+                HttpMethod.GET,
+                entity,
+                String.class
+        );
+
+        System.out.println("Response: " + response.getBody());
+    }
