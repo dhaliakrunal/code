@@ -216,3 +216,12 @@ public void run(String... args) {
 
         System.out.println("Response: " + response.getBody());
     }
+
+
+
+
+@GetMapping("/call-api")
+    public ResponseEntity<String> callExternalApi() {
+        apiClientService.fetchDataFromApi();
+        return ResponseEntity.ok("API Call Done (Check Console)");
+    }
