@@ -146,6 +146,72 @@ public class JsonReaderController {
 
 
 
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.model.EntityWrapper;
+import com.example.jsonreader.model.KycWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+
+@Service
+public class JsonReaderService {
+
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
+
+    @Value("${api.entities-url}")
+    private String entitiesUrl;
+
+    @Value("${api.kyc-url}")
+    private String kycUrl;
+
+    @Value("${api.token}")
+    private String token;
+
+    public JsonReaderService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+        this.objectMapper = new ObjectMapper();
+    }
+
+    public List<EntityWrapper> fetchEntities() {
+        try {
+            String entityJson = fetchApiJson(entitiesUrl);
+            return objectMapper.readValue(entityJson, new TypeReference<List<EntityWrapper>>() {});
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fetch Entities: " + e.getMessage());
+        }
+    }
+
+    public List<KycWrapper> fetchKycDetails() {
+        try {
+            String kycJson = fetchApiJson(kycUrl);
+            return objectMapper.readValue(kycJson, new TypeReference<List<KycWrapper>>() {});
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fetch KYC: " + e.getMessage());
+        }
+    }
+
+    private String fetchApiJson(String url) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", token);
+        headers.setAccept(MediaType.parseMediaTypes("application/json"));
+
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+
+        return response.getBody();
+    }
+}
+
+
+
+
 public String fetchDataFromApi() {
     try {
         HttpHeaders headers = new HttpHeaders();
@@ -167,3 +233,41 @@ public String fetchDataFromApi() {
         throw new RuntimeException("API fetch failed: " + e.getMessage());
     }
 }
+
+
+
+
+
+
+package com.example.jsonreader.controller;
+
+import com.example.jsonreader.model.EntityWrapper;
+import com.example.jsonreader.model.KycWrapper;
+import com.example.jsonreader.service.JsonReaderService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api")
+public class JsonReaderController {
+
+    private final JsonReaderService jsonReaderService;
+
+    public JsonReaderController(JsonReaderService jsonReaderService) {
+        this.jsonReaderService = jsonReaderService;
+    }
+
+    @GetMapping("/entities")
+    public ResponseEntity<List<EntityWrapper>> getEntities() {
+        return ResponseEntity.ok(jsonReaderService.fetchEntities());
+    }
+
+    @GetMapping("/kyc")
+    public ResponseEntity<List<KycWrapper>> getKyc() {
+        return ResponseEntity.ok(jsonReaderService.fetchKycDetails());
+    }
+}
+
+
