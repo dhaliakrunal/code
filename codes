@@ -1,3 +1,54 @@
+package com.example.jsonreader.service;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public class JsonReaderService {
+
+    private final RestTemplate restTemplate;
+
+    @Value("${api.url}")
+    private String apiUrl;
+
+    @Value("${api.token}")
+    private String token;
+
+    public JsonReaderService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    public void fetchDataFromApi() {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", token);
+            headers.setAccept(MediaType.parseMediaTypes("application/json"));
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    apiUrl,
+                    HttpMethod.GET,
+                    entity,
+                    String.class
+            );
+
+            System.out.println("==== API RESPONSE ====");
+            System.out.println(response.getBody());
+
+        } catch (Exception e) {
+            System.out.println("Error during API call: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+
+
 package com.example.jsonreader;
 
 import com.example.jsonreader.config.JsonFileProperties;
@@ -23,6 +74,37 @@ public class JsonReaderApplication implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        jsonReaderService.fetchDataFromApi(); // ✅ or comment this if debugging
+        jsonReaderService.fetchDataFromApi();
     }
 }
+
+
+
+
+
+
+package com.example.jsonreader.config;
+
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@Getter
+@Setter
+@ConfigurationProperties(prefix = "json")
+public class JsonFileProperties {
+    private String entitiesPath;
+    private String kycPath;
+    private String outputPath;
+}
+
+
+
+
+
+
+<dependency>
+    <groupId>org.apache.httpcomponents</groupId>
+    <artifactId>httpclient</artifactId>
+    <version>4.5.13</version>
+</dependency>
