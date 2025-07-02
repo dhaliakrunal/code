@@ -108,3 +108,62 @@ public class JsonFileProperties {
     <artifactId>httpclient</artifactId>
     <version>4.5.13</version>
 </dependency>
+
+
+
+
+
+package com.example.jsonreader.controller;
+
+import com.example.jsonreader.service.JsonReaderService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api")
+public class JsonReaderController {
+
+    private final JsonReaderService jsonReaderService;
+
+    public JsonReaderController(JsonReaderService jsonReaderService) {
+        this.jsonReaderService = jsonReaderService;
+    }
+
+    @GetMapping("/fetch")
+    public ResponseEntity<String> fetchData() {
+        try {
+            String response = jsonReaderService.fetchDataFromApi();
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity
+                    .status(500)
+                    .body("Error occurred: " + e.getMessage());
+        }
+    }
+}
+
+
+
+
+
+public String fetchDataFromApi() {
+    try {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", token);
+        headers.setAccept(MediaType.parseMediaTypes("application/json"));
+
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                apiUrl,
+                HttpMethod.GET,
+                entity,
+                String.class
+        );
+
+        return response.getBody();
+    } catch (Exception e) {
+        e.printStackTrace();
+        throw new RuntimeException("API fetch failed: " + e.getMessage());
+    }
+}
