@@ -1,49 +1,91 @@
-package com.example.jsonreader.config;
+package com.example.jsonreader.service;
 
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.conn.ssl.TrustSelfSignedStrategy;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.ssl.SSLContextBuilder;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
-import org.springframework.web.client.RestTemplate;
+import com.example.jsonreader.config.JsonFileProperties;
+import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Service;
 
-import javax.net.ssl.SSLContext;
+import java.io.File;
+import java.io.InputStream;
+import java.util.*;
+import java.util.stream.Collectors;
 
-@Configuration
-public class AppConfig {
+@Service
+public class JsonReaderService {
 
-    @Bean
-    public RestTemplate restTemplate() throws Exception {
-        SSLContext sslContext = SSLContextBuilder
-                .create()
-                .loadTrustMaterial(null, new TrustSelfSignedStrategy())
-                .build();
+pgsql
+Copy
+Edit
+private final JsonFileProperties properties;
 
-        CloseableHttpClient httpClient = HttpClients.custom()
-                .setSSLContext(sslContext)
-                .setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)
-                .build();
+public JsonReaderService(JsonFileProperties properties) {
+    this.properties = properties;
+}
 
-        HttpComponentsClientHttpRequestFactory factory =
-                new HttpComponentsClientHttpRequestFactory(httpClient);
+public List<MergedOutput> mergeAndDisplayData() {
+    List<MergedOutput> mergedResults = new ArrayList<>();
 
-        return new RestTemplate(factory);
+    try {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        InputStream entityStream = new ClassPathResource(properties.getEntitiesPath()).getInputStream();
+        EntityResponse entityResponse = mapper.readValue(entityStream, EntityResponse.class);
+        List<Wrapper> wrappers = entityResponse.getResults();
+
+        InputStream kycStream = new ClassPathResource(properties.getKycPath()).getInputStream();
+        KycDetailsWrapper kycWrapper = mapper.readValue(kycStream, KycDetailsWrapper.class);
+        List<KycDetails> kycDetailsList = kycWrapper.getResults();
+
+        wrappers.stream()
+                .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream()
+                        .filter(entityId -> entityId.getKycId() != null)
+                        .flatMap(entityId -> kycDetailsList.stream()
+                                .filter(kyc -> kyc.getIdentifiers() != null)
+                                .filter(kyc -> kyc.getIdentifiers().stream()
+                                        .anyMatch(kid -> kid.getKycId() != null && kid.getKycId().equals(entityId.getKycId())))
+                                .map(kyc -> {
+                                    MergedOutput output = new MergedOutput();
+                                    output.setIdentifiers(wrapper.getEntity().getIdentifiers());
+                                    output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                                    if (kyc.getKycData() != null) {
+                                        output.setKycSegment(kyc.getKycData().getKycSegment());
+                                        output.setKycSite(kyc.getKycData().getKycSite());
+                                        output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                    }
+
+                                    return output;
+                                })))
+                .forEach(mergedResults::add);
+
+        mapper.writerWithDefaultPrettyPrinter().writeValue(new File(properties.getOutputPath()), mergedResults);
+        System.out.println("✅ Merged output written to: " + properties.getOutputPath());
+
+        // Print to console
+        mergedResults.forEach(System.out::println);
+
+    } catch (Exception e) {
+        System.err.println("❌ Error during merging: " + e.getMessage());
+        e.printStackTrace();
     }
+
+    return mergedResults;
+}
 }
 
 
 
-<dependency>
-  <groupId>org.springframework.boot</groupId>
-  <artifactId>spring-boot-starter-web</artifactId>
-  <exclusions>
-    <exclusion>
-      <groupId>org.apache.httpcomponents.client5</groupId>
-      <artifactId>httpclient5</artifactId>
-    </exclusion>
-  </exclusions>
-</dependency>
+private final JsonReaderService jsonReaderService;
 
+public EntityController(JsonReaderService jsonReaderService) {
+    this.jsonReaderService = jsonReaderService;
+}
+
+@GetMapping("/merged-data")
+public List<MergedOutput> getMergedData() {
+    return jsonReaderService.mergeAndDisplayData();
+}
