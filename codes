@@ -161,3 +161,22 @@ public class EntityController {
         return jsonReaderService.mergeAndDisplayData();
     }
 }
+
+
+
+package com.example.jsonreader.config;
+
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@ConfigurationProperties(prefix = "json")
+@Getter
+@Setter
+public class JsonFileProperties {
+
+    private String outputPath; // Example: src/main/resources/merged_output.json
+}
+
