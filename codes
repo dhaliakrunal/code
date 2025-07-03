@@ -589,3 +589,22 @@ for (KycDetails kd : kycDetailsList) {
         System.out.println("❌ kycData is null");
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+System.out.println("👉 kyc.getKycData(): " + mapper.writeValueAsString(kyc.getKycData()));
+ObjectMapper mapper = new ObjectMapper();
+System.out.println("Raw JSON for first KYC: " + mapper.writeValueAsString(kycDetailsList.get(0)));
+System.out.println("Parsed kycData: " + mapper.writeValueAsString(kycDetailsList.get(0).getKycData()));
+
