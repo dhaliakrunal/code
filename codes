@@ -1,144 +1,37 @@
-@Service
-public class MergeApiService {
+package com.example.jsonreader.config;
 
-    @Autowired
-    private RestTemplate restTemplate;
-
-    @Value("${api1.url}")
-    private String api1Url;
-
-    @Value("${api2.url}")
-    private String api2Url;
-
-    @Value("${api.token}")
-    private String accessToken;
-
-    public List<MergedResponse> fetchAndMerge() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Authorization", "Bearer " + accessToken);
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        HttpEntity<String> entity = new HttpEntity<>(headers);
-
-        // Fetch from API 1
-        ResponseEntity<EntityResponse[]> response1 = restTemplate.exchange(
-                api1Url, HttpMethod.GET, entity, EntityResponse[].class);
-        List<EntityResponse> entityList = Arrays.asList(response1.getBody());
-
-        // Fetch from API 2
-        ResponseEntity<KycResponse[]> response2 = restTemplate.exchange(
-                api2Url, HttpMethod.GET, entity, KycResponse[].class);
-        List<KycResponse> kycList = Arrays.asList(response2.getBody());
-
-        // Merge logic based on common kycId
-        List<MergedResponse> mergedList = new ArrayList<>();
-
-        for (EntityResponse ent : entityList) {
-            for (Identifiers entId : ent.getIdentifiers()) {
-                for (KycResponse kyc : kycList) {
-                    for (Identifiers kycId : kyc.getIdentifiers()) {
-                        if (Objects.equals(entId.getKycId(), kycId.getKycId())) {
-                            MergedResponse merged = new MergedResponse();
-                            merged.setIdentifiers(ent.getIdentifiers());
-                            merged.setBusinessGroup(ent.getBusinessGroup());
-                            merged.setKycSegment(kyc.getKycData().getKycSegment());
-                            merged.setKycSite(kyc.getKycData().getKycSite());
-                            merged.setRiskIndustry(kyc.getKycData().getRiskIndustry());
-                            mergedList.add(merged);
-                        }
-                    }
-                }
-            }
-        }
-
-        return mergedList;
-    }
-}
-
-
-
-
-@RestController
-@RequestMapping("/api")
-public class MergeController {
-
-    @Autowired
-    private MergeApiService mergeApiService;
-
-    @GetMapping("/merged-data")
-    public ResponseEntity<List<MergedResponse>> getMergedData() {
-        List<MergedResponse> result = mergeApiService.fetchAndMerge();
-        return ResponseEntity.ok(result);
-    }
-}
-
-
-
-
-
-api1.url=https://example.com/api/entities
-api2.url=https://example.com/api/kycDetails
-api.token=your_access_token_here
-
-
-
-
-@Bean
-public RestTemplate restTemplate() throws Exception {
-    TrustStrategy acceptingTrustStrategy = (cert, authType) -> true;
-
-    SSLContext sslContext = SSLContexts.custom()
-            .loadTrustMaterial(null, acceptingTrustStrategy)
-            .build();
-
-    HttpClient client = HttpClients.custom()
-            .setSSLContext(sslContext)
-            .build();
-
-    HttpComponentsClientHttpRequestFactory factory =
-            new HttpComponentsClientHttpRequestFactory(client);
-
-    return new RestTemplate(factory);
-}
-
-
-
-
+import org.apache.http.client.HttpClient;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.TrustSelfSignedStrategy;
-import org.apache.http.ssl.SSLContextBuilder;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.ssl.SSLContextBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
-@Bean
-public RestTemplate restTemplate() throws Exception {
-    SSLContext sslContext = SSLContextBuilder
-            .create()
-            .loadTrustMaterial(new TrustSelfSignedStrategy()) // Trust all/self-signed certs
-            .build();
+import javax.net.ssl.SSLContext;
 
-    CloseableHttpClient httpClient = HttpClients.custom()
-            .setSSLContext(sslContext)
-            .setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)
-            .build();
+@Configuration
+public class AppConfig {
 
-    HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-    return new RestTemplate(factory);
+    @Bean
+    public RestTemplate restTemplate() throws Exception {
+        // Create SSLContext that trusts self-signed certificates
+        SSLContext sslContext = SSLContextBuilder
+                .create()
+                .loadTrustMaterial(null, new TrustSelfSignedStrategy())
+                .build();
+
+        // Create HTTP client with custom SSL context
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setSSLContext(sslContext)
+                .setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)
+                .build();
+
+        // Plug into Spring RestTemplate
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
+        return new RestTemplate(factory);
+    }
 }
-
-
-
-
-
-
-
-
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.conn.ssl.TrustSelfSignedStrategy;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.ssl.SSLContextBuilder;
-
-
