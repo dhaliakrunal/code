@@ -1,40 +1,49 @@
 @Service
-public class MergeService {
+public class MergeApiService {
 
     @Autowired
     private RestTemplate restTemplate;
 
-    public List<MergedOutput> fetchAndMergeData() {
-        // Call API 1
-        String api1Url = "http://localhost:8080/api/entities"; // Replace with actual URL
-        ResponseEntity<EntityData[]> response1 = restTemplate.getForEntity(api1Url, EntityData[].class);
-        List<EntityData> entityList = Arrays.asList(response1.getBody());
+    @Value("${api1.url}")
+    private String api1Url;
 
-        // Call API 2
-        String api2Url = "http://localhost:8080/api/kyc-details"; // Replace with actual URL
-        ResponseEntity<KycDetails[]> response2 = restTemplate.getForEntity(api2Url, KycDetails[].class);
-        List<KycDetails> kycList = Arrays.asList(response2.getBody());
+    @Value("${api2.url}")
+    private String api2Url;
 
-        // Merge using kycId
-        List<MergedOutput> mergedList = new ArrayList<>();
+    @Value("${api.token}")
+    private String accessToken;
 
-        for (EntityData entity : entityList) {
-            for (Identifiers entityId : entity.getIdentifiers()) {
-                Long kycId = entityId.getKycId();
+    public List<MergedResponse> fetchAndMerge() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + accessToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
 
-                for (KycDetails kyc : kycList) {
-                    for (Identifiers kycIdObj : kyc.getIdentifiers()) {
-                        if (kycId.equals(kycIdObj.getKycId())) {
-                            MergedOutput merged = new MergedOutput();
-                            merged.setIdentifiers(entity.getIdentifiers());
-                            merged.setBusinessGroup(entity.getBusinessGroup());
+        HttpEntity<String> entity = new HttpEntity<>(headers);
 
-                            if (kyc.getKycData() != null) {
-                                merged.setKycSegment(kyc.getKycData().getKycSegment());
-                                merged.setKycSite(kyc.getKycData().getKycSite());
-                                merged.setKycRiskIndustry(kyc.getKycData().getKycRiskIndustry());
-                            }
+        // Fetch from API 1
+        ResponseEntity<EntityResponse[]> response1 = restTemplate.exchange(
+                api1Url, HttpMethod.GET, entity, EntityResponse[].class);
+        List<EntityResponse> entityList = Arrays.asList(response1.getBody());
 
+        // Fetch from API 2
+        ResponseEntity<KycResponse[]> response2 = restTemplate.exchange(
+                api2Url, HttpMethod.GET, entity, KycResponse[].class);
+        List<KycResponse> kycList = Arrays.asList(response2.getBody());
+
+        // Merge logic based on common kycId
+        List<MergedResponse> mergedList = new ArrayList<>();
+
+        for (EntityResponse ent : entityList) {
+            for (Identifiers entId : ent.getIdentifiers()) {
+                for (KycResponse kyc : kycList) {
+                    for (Identifiers kycId : kyc.getIdentifiers()) {
+                        if (Objects.equals(entId.getKycId(), kycId.getKycId())) {
+                            MergedResponse merged = new MergedResponse();
+                            merged.setIdentifiers(ent.getIdentifiers());
+                            merged.setBusinessGroup(ent.getBusinessGroup());
+                            merged.setKycSegment(kyc.getKycData().getKycSegment());
+                            merged.setKycSite(kyc.getKycData().getKycSite());
+                            merged.setRiskIndustry(kyc.getKycData().getRiskIndustry());
                             mergedList.add(merged);
                         }
                     }
@@ -49,17 +58,16 @@ public class MergeService {
 
 
 
-
 @RestController
-@RequestMapping("/api/merged")
+@RequestMapping("/api")
 public class MergeController {
 
     @Autowired
-    private MergeService mergeService;
+    private MergeApiService mergeApiService;
 
-    @GetMapping
-    public ResponseEntity<List<MergedOutput>> getMergedData() {
-        List<MergedOutput> result = mergeService.fetchAndMergeData();
+    @GetMapping("/merged-data")
+    public ResponseEntity<List<MergedResponse>> getMergedData() {
+        List<MergedResponse> result = mergeApiService.fetchAndMerge();
         return ResponseEntity.ok(result);
     }
 }
@@ -67,26 +75,7 @@ public class MergeController {
 
 
 
-server.ssl.trust-store=classpath:myTrustStore.jks
-server.ssl.trust-store-password=changeit
-server.ssl.trust-store-type=JKS
 
-
-
-@Bean
-public RestTemplate restTemplate() throws Exception {
-    TrustStrategy acceptingTrustStrategy = (cert, authType) -> true;
-
-    SSLContext sslContext = SSLContexts.custom()
-            .loadTrustMaterial(null, acceptingTrustStrategy)
-            .build();
-
-    HttpClient client = HttpClients.custom()
-            .setSSLContext(sslContext)
-            .build();
-
-    HttpComponentsClientHttpRequestFactory factory =
-            new HttpComponentsClientHttpRequestFactory(client);
-
-    return new RestTemplate(factory);
-}
+api1.url=https://example.com/api/entities
+api2.url=https://example.com/api/kycDetails
+api.token=your_access_token_here
