@@ -425,3 +425,27 @@ System.out.println("✅ Final Merged Output:");
 String prettyJson = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mergedResults);
 System.out.println(prettyJson);
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+KycDetailsWrapper kycWrapper = mapper.readValue(kycResponseRaw.getBody(), KycDetailsWrapper.class);
+System.out.println("✅ KYC Entries Loaded: " + kycWrapper.getResults().size());
+
+// Add this to inspect 1st record's kycSegment
+System.out.println("🔍 First kycSegment: " +
+    (kycWrapper.getResults().get(0).getKycData() != null
+        ? kycWrapper.getResults().get(0).getKycData().getKycSegment()
+        : "kycData is null")
+);
+
