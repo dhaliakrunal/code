@@ -411,3 +411,17 @@ public class JsonReaderService {
     }
 }
 
+
+
+
+
+
+// --- 6. Write to file ---
+mapper.writerWithDefaultPrettyPrinter().writeValue(new File(properties.getOutputPath()), mergedResults);
+System.out.println("✅ Merged output written to: " + properties.getOutputPath());
+
+// --- 7. Print merged results to console in pretty JSON ---
+System.out.println("✅ Final Merged Output:");
+String prettyJson = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mergedResults);
+System.out.println(prettyJson);
+
