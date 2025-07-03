@@ -300,3 +300,114 @@ public class AppConfig {
                 .build();
     }
 }
+
+
+
+
+
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.config.ApiProperties;
+import com.example.jsonreader.config.JsonFileProperties;
+import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+public class JsonReaderService {
+
+    private final JsonFileProperties properties;
+    private final ApiProperties apiProperties;
+    private final RestTemplate restTemplate;
+
+    public JsonReaderService(JsonFileProperties properties, ApiProperties apiProperties, RestTemplate restTemplate) {
+        this.properties = properties;
+        this.apiProperties = apiProperties;
+        this.restTemplate = restTemplate;
+    }
+
+    public List<MergedOutput> mergeAndDisplayData() {
+        List<MergedOutput> mergedResults = new ArrayList<>();
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+            // --- 1. Prepare headers with token ---
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(apiProperties.getAccessToken());
+            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+
+            HttpEntity<Void> request = new HttpEntity<>(headers);
+
+            // --- 2. Fetch Entity API (as byte[]) ---
+            ResponseEntity<byte[]> entityResponseRaw = restTemplate.exchange(
+                    apiProperties.getEntitiesUrl(),
+                    HttpMethod.GET,
+                    request,
+                    byte[].class
+            );
+            EntityResponse entityResponse = mapper.readValue(entityResponseRaw.getBody(), EntityResponse.class);
+
+            // --- 3. Fetch KYC API (as byte[]) ---
+            ResponseEntity<byte[]> kycResponseRaw = restTemplate.exchange(
+                    apiProperties.getKycUrl(),
+                    HttpMethod.GET,
+                    request,
+                    byte[].class
+            );
+            KycDetailsWrapper kycWrapper = mapper.readValue(kycResponseRaw.getBody(), KycDetailsWrapper.class);
+
+            // --- 4. Extract results ---
+            List<Wrapper> wrappers = entityResponse.getResults();
+            List<KycDetails> kycDetailsList = kycWrapper.getResults();
+
+            // --- 5. Merge logic ---
+            wrappers.stream()
+                    .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                    .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream()
+                            .filter(entityId -> entityId.getKycId() != null)
+                            .flatMap(entityId -> kycDetailsList.stream()
+                                    .filter(kyc -> kyc.getIdentifiers() != null)
+                                    .filter(kyc -> kyc.getIdentifiers().stream()
+                                            .anyMatch(kid -> kid.getKycId() != null && kid.getKycId().equals(entityId.getKycId())))
+                                    .map(kyc -> {
+                                        MergedOutput output = new MergedOutput();
+                                        output.setIdentifiers(wrapper.getEntity().getIdentifiers());
+                                        output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                                        if (kyc.getKycData() != null) {
+                                            output.setKycSegment(kyc.getKycData().getKycSegment());
+                                            output.setKycSite(kyc.getKycData().getKycSite());
+                                            output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                        }
+
+                                        return output;
+                                    })))
+                    .forEach(mergedResults::add);
+
+            // --- 6. Write to file ---
+            mapper.writerWithDefaultPrettyPrinter().writeValue(new File(properties.getOutputPath()), mergedResults);
+            System.out.println("✅ Merged output written to: " + properties.getOutputPath());
+
+            // --- 7. Optional: Print raw response for debugging ---
+            // System.out.println("Raw Entity Response: " + new String(entityResponseRaw.getBody(), StandardCharsets.UTF_8));
+            // System.out.println("Raw KYC Response: " + new String(kycResponseRaw.getBody(), StandardCharsets.UTF_8));
+
+        } catch (Exception e) {
+            System.err.println("❌ Error during merging: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return mergedResults;
+    }
+}
+
