@@ -63,3 +63,30 @@ public class MergeController {
         return ResponseEntity.ok(result);
     }
 }
+
+
+
+
+server.ssl.trust-store=classpath:myTrustStore.jks
+server.ssl.trust-store-password=changeit
+server.ssl.trust-store-type=JKS
+
+
+
+@Bean
+public RestTemplate restTemplate() throws Exception {
+    TrustStrategy acceptingTrustStrategy = (cert, authType) -> true;
+
+    SSLContext sslContext = SSLContexts.custom()
+            .loadTrustMaterial(null, acceptingTrustStrategy)
+            .build();
+
+    HttpClient client = HttpClients.custom()
+            .setSSLContext(sslContext)
+            .build();
+
+    HttpComponentsClientHttpRequestFactory factory =
+            new HttpComponentsClientHttpRequestFactory(client);
+
+    return new RestTemplate(factory);
+}
