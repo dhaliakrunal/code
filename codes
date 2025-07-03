@@ -570,3 +570,22 @@ public class JsonReaderService {
         return mergedResults;
     }
 }
+
+
+
+
+
+
+
+
+System.out.println("---- KYC Details List Dump ----");
+for (KycDetails kd : kycDetailsList) {
+    System.out.println("✅ identifiers: " + kd.getIdentifiers());
+    if (kd.getKycData() != null) {
+        System.out.println("🔹 segment: " + kd.getKycData().getKycSegment());
+        System.out.println("🔹 site: " + kd.getKycData().getKycSite());
+        System.out.println("🔹 risk: " + kd.getKycData().getRiskIndustry());
+    } else {
+        System.out.println("❌ kycData is null");
+    }
+}
