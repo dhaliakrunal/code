@@ -33,3 +33,17 @@ public class AppConfig {
         return new RestTemplate(factory);
     }
 }
+
+
+
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-web</artifactId>
+  <exclusions>
+    <exclusion>
+      <groupId>org.apache.httpcomponents.client5</groupId>
+      <artifactId>httpclient5</artifactId>
+    </exclusion>
+  </exclusions>
+</dependency>
+
