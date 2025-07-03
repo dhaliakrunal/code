@@ -449,3 +449,124 @@ System.out.println("🔍 First kycSegment: " +
         : "kycData is null")
 );
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+public class JsonReaderService {
+
+    @Value("${api.entity-url}")
+    private String entityApiUrl;
+
+    @Value("${api.kyc-url}")
+    private String kycApiUrl;
+
+    @Value("${api.token}")
+    private String accessToken;
+
+    @Value("${api.output-path}")
+    private String outputPath;
+
+    private final RestTemplate restTemplate;
+    private final ObjectMapper mapper;
+
+    public JsonReaderService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+        this.mapper = new ObjectMapper();
+        this.mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    }
+
+    public List<MergedOutput> mergeAndDisplayData() {
+        List<MergedOutput> mergedResults = new ArrayList<>();
+
+        try {
+            // Set up headers with Authorization
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", "Bearer " + accessToken);
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            // Fetch Entity API
+            ResponseEntity<EntityResponse> entityResponse = restTemplate.exchange(
+                    entityApiUrl, HttpMethod.GET, request, EntityResponse.class);
+
+            List<Wrapper> wrappers = entityResponse.getBody().getResults();
+
+            // Fetch KYC API
+            ResponseEntity<KycDetailsWrapper> kycResponse = restTemplate.exchange(
+                    kycApiUrl, HttpMethod.GET, request, KycDetailsWrapper.class);
+
+            List<KycDetails> kycDetailsList = kycResponse.getBody().getResults();
+
+            // Merge logic using Stream
+            wrappers.stream()
+                    .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                    .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream()
+                            .filter(entityId -> entityId.getKycId() != null)
+                            .flatMap(entityId -> kycDetailsList.stream()
+                                    .filter(kyc -> kyc.getIdentifiers() != null)
+                                    .filter(kyc -> kyc.getIdentifiers().stream()
+                                            .anyMatch(kid -> kid.getKycId() != null &&
+                                                    kid.getKycId().equals(entityId.getKycId())))
+                                    .map(kyc -> {
+                                        MergedOutput output = new MergedOutput();
+                                        output.setIdentifiers(wrapper.getEntity().getIdentifiers());
+                                        output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                                        if (kyc.getKycData() != null) {
+                                            output.setKycSegment(kyc.getKycData().getKycSegment());
+                                            output.setKycSite(kyc.getKycData().getKycSite());
+                                            output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                        }
+
+                                        return output;
+                                    })))
+                    .forEach(mergedResults::add);
+
+            // Write to file
+            mapper.writerWithDefaultPrettyPrinter().writeValue(new File(outputPath), mergedResults);
+            System.out.println("✅ Merged output written to: " + outputPath);
+
+            // Print
+            mergedResults.forEach(System.out::println);
+
+        } catch (Exception e) {
+            System.err.println("❌ Error during merging: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return mergedResults;
+    }
+}
