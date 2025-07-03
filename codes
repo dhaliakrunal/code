@@ -79,3 +79,24 @@ public class MergeController {
 api1.url=https://example.com/api/entities
 api2.url=https://example.com/api/kycDetails
 api.token=your_access_token_here
+
+
+
+
+@Bean
+public RestTemplate restTemplate() throws Exception {
+    TrustStrategy acceptingTrustStrategy = (cert, authType) -> true;
+
+    SSLContext sslContext = SSLContexts.custom()
+            .loadTrustMaterial(null, acceptingTrustStrategy)
+            .build();
+
+    HttpClient client = HttpClients.custom()
+            .setSSLContext(sslContext)
+            .build();
+
+    HttpComponentsClientHttpRequestFactory factory =
+            new HttpComponentsClientHttpRequestFactory(client);
+
+    return new RestTemplate(factory);
+}
