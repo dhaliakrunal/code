@@ -1,6 +1,56 @@
 package com.example.jsonreader.service;
 
 import com.example.jsonreader.config.ApiProperties;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+@RequiredArgsConstructor
+public class TokenService {
+
+    private final ApiProperties apiProperties;
+    private final RestTemplate restTemplate;
+    private String cachedToken;  // Optional: reuse same token if valid
+
+    public String getAccessToken() {
+        if (cachedToken != null) {
+            return cachedToken;
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Accept", "*/*");  // Add any required headers
+
+            HttpEntity<Void> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    apiProperties.getTokenUrl(),
+                    HttpMethod.GET,
+                    request,
+                    String.class
+            );
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                JsonNode body = new ObjectMapper().readTree(response.getBody());
+                String accessToken = body.get("access_token").asText();
+                cachedToken = accessToken; // Save for reuse (optional)
+                return accessToken;
+            } else {
+                throw new RuntimeException("Token request failed: " + response.getStatusCode());
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException("Error while fetching token: " + e.getMessage(), e);
+        }
+    }
+}
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.config.ApiProperties;
 import com.example.jsonreader.config.JsonFileProperties;
 import com.example.jsonreader.model.*;
 import com.fasterxml.jackson.databind.DeserializationFeature;
