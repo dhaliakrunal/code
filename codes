@@ -19,6 +19,132 @@ import java.util.List;
 @RequiredArgsConstructor
 public class JsonReaderService {
 
+    private final ApiProperties apiProperties;
+    private final JsonFileProperties jsonProps;
+    private final RestTemplate restTemplate;
+
+    public List<MergedOutput> mergeAndDisplayData() {
+        List<MergedOutput> mergedResults = new ArrayList<>();
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+            // 🔐 Get Token
+            String token = fetchAccessToken();
+
+            // 🌐 Headers
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(token);
+            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+            headers.set("Accept", "*/*;version=gamma"); // important for full fields
+
+            HttpEntity<Void> request = new HttpEntity<>(headers);
+
+            // 📡 Entity API
+            ResponseEntity<String> entityRes = restTemplate.exchange(
+                    apiProperties.getEntitiesUrl(),
+                    HttpMethod.GET,
+                    request,
+                    String.class
+            );
+            EntityResponse entityResponse = mapper.readValue(entityRes.getBody(), EntityResponse.class);
+            List<Wrapper> wrappers = entityResponse.getResults();
+
+            // 📡 KYC API
+            ResponseEntity<String> kycRes = restTemplate.exchange(
+                    apiProperties.getKycUrl(),
+                    HttpMethod.GET,
+                    request,
+                    String.class
+            );
+            KycDetailsWrapper kycWrapper = mapper.readValue(kycRes.getBody(), KycDetailsWrapper.class);
+            List<KycDetails> kycDetailsList = kycWrapper.getResults();
+
+            // 🔄 Merge on ptyId
+            wrappers.stream()
+                    .filter(w -> w.getEntity() != null && w.getEntity().getIdentifiers() != null)
+                    .flatMap(w -> w.getEntity().getIdentifiers().stream()
+                            .filter(id -> id.getPtyId() != null)
+                            .flatMap(id -> kycDetailsList.stream()
+                                    .filter(kyc -> kyc.getIdentifiers() != null)
+                                    .filter(kyc -> kyc.getIdentifiers().stream()
+                                            .anyMatch(kid -> kid.getPtyId() != null &&
+                                                    kid.getPtyId().equals(id.getPtyId())))
+                                    .map(kyc -> {
+                                        MergedOutput out = new MergedOutput();
+                                        out.setIdentifiers(w.getEntity().getIdentifiers());
+                                        out.setBusinessGroup(w.getBusinessGroup());
+
+                                        if (kyc.getKycData() != null) {
+                                            out.setKycSegment(kyc.getKycData().getKycSegment());
+                                            out.setKycSite(kyc.getKycData().getKycSite());
+                                            out.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                        }
+
+                                        return out;
+                                    })))
+                    .forEach(mergedResults::add);
+
+            // 💾 Save to file
+            mapper.writerWithDefaultPrettyPrinter()
+                    .writeValue(new File(jsonProps.getOutputPath()), mergedResults);
+            System.out.println("✅ Output written to " + jsonProps.getOutputPath());
+
+            // 🖨️ Print
+            System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mergedResults));
+
+        } catch (Exception e) {
+            System.err.println("❌ Merge Error: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return mergedResults;
+    }
+
+    private String fetchAccessToken() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.set("Accept", "*/*");
+
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                apiProperties.getTokenUrl(),
+                HttpMethod.GET,
+                request,
+                String.class
+        );
+
+        if (response.getStatusCode() == HttpStatus.OK) {
+            JsonNode json = new ObjectMapper().readTree(response.getBody());
+            return json.get("access_token").asText();
+        }
+
+        throw new RuntimeException("❌ Failed to retrieve token: " + response.getStatusCodeValue());
+    }
+}
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.config.ApiProperties;
+import com.example.jsonreader.config.JsonFileProperties;
+import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class JsonReaderService {
+
     private final JsonFileProperties properties;
     private final ApiProperties apiProperties;
     private final RestTemplate restTemplate;
