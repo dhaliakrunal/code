@@ -712,3 +712,99 @@ ObjectMapper mapper = new ObjectMapper();
 System.out.println("Raw JSON for first KYC: " + mapper.writeValueAsString(kycDetailsList.get(0)));
 System.out.println("Parsed kycData: " + mapper.writeValueAsString(kycDetailsList.get(0).getKycData()));
 
+
+
+
+
+
+
+
+
+auth.token-url=https://your-domain.com/oauth/token
+auth.grant-type=password
+auth.username=your-username
+auth.password=your-password
+
+
+// ApiAuthProperties.java
+package com.example.jsonreader.config;
+
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
+@Data
+@Component
+@ConfigurationProperties(prefix = "auth")
+public class ApiAuthProperties {
+    private String tokenUrl;
+    private String grantType;
+    private String username;
+    private String password;
+}
+
+
+
+
+// TokenService.java
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.config.ApiAuthProperties;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+@Service
+@RequiredArgsConstructor
+public class TokenService {
+
+    private final ApiAuthProperties authProperties;
+    private final RestTemplate restTemplate;
+
+    public String getAccessToken() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("grant_type", authProperties.getGrantType());
+        params.put("username", authProperties.getUsername());
+        params.put("password", authProperties.getPassword());
+
+        // Convert to URL-encoded string
+        StringBuilder bodyBuilder = new StringBuilder();
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (bodyBuilder.length() > 0) bodyBuilder.append("&");
+            bodyBuilder.append(entry.getKey()).append("=").append(entry.getValue());
+        }
+
+        HttpEntity<String> request = new HttpEntity<>(bodyBuilder.toString(), headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                authProperties.getTokenUrl(),
+                HttpMethod.POST,
+                request,
+                String.class
+        );
+
+        if (response.getStatusCode() == HttpStatus.OK) {
+            try {
+                JsonNode node = new ObjectMapper().readTree(response.getBody());
+                return node.get("access_token").asText(); // Adjust if the field is different
+            } catch (Exception e) {
+                throw new RuntimeException("❌ Error parsing access token: " + e.getMessage(), e);
+            }
+        }
+
+        throw new RuntimeException("❌ Failed to get token: " + response.getStatusCodeValue());
+    }
+}
+
+
+private final TokenService tokenService;
+headers.setBearerAuth(apiProperties.getAccessToken());
