@@ -720,10 +720,9 @@ System.out.println("Parsed kycData: " + mapper.writeValueAsString(kycDetailsList
 
 
 
-auth.token-url=https://your-domain.com/oauth/token
-auth.grant-type=password
-auth.username=your-username
-auth.password=your-password
+auth.token-url=https://your-auth-server.com/oauth/token
+auth.grant-type=client_credentials
+auth.client-id=your-client-id
 
 
 // ApiAuthProperties.java
@@ -739,10 +738,8 @@ import org.springframework.stereotype.Component;
 public class ApiAuthProperties {
     private String tokenUrl;
     private String grantType;
-    private String username;
-    private String password;
+    private String clientId;
 }
-
 
 
 
@@ -770,13 +767,14 @@ public class TokenService {
     public String getAccessToken() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
 
+        // Only client_id and grant_type
         Map<String, String> params = new LinkedHashMap<>();
         params.put("grant_type", authProperties.getGrantType());
-        params.put("username", authProperties.getUsername());
-        params.put("password", authProperties.getPassword());
+        params.put("client_id", authProperties.getClientId());
 
-        // Convert to URL-encoded string
+        // Convert map to url-encoded string
         StringBuilder bodyBuilder = new StringBuilder();
         for (Map.Entry<String, String> entry : params.entrySet()) {
             if (bodyBuilder.length() > 0) bodyBuilder.append("&");
@@ -794,17 +792,17 @@ public class TokenService {
 
         if (response.getStatusCode() == HttpStatus.OK) {
             try {
-                JsonNode node = new ObjectMapper().readTree(response.getBody());
-                return node.get("access_token").asText(); // Adjust if the field is different
+                JsonNode json = new ObjectMapper().readTree(response.getBody());
+                return json.get("access_token").asText(); // ✅ or adjust if it's wrapped/nested
             } catch (Exception e) {
-                throw new RuntimeException("❌ Error parsing access token: " + e.getMessage(), e);
+                throw new RuntimeException("❌ Error parsing token response: " + e.getMessage(), e);
             }
         }
 
-        throw new RuntimeException("❌ Failed to get token: " + response.getStatusCodeValue());
+        throw new RuntimeException("❌ Token request failed: " + response.getStatusCodeValue());
     }
 }
 
 
-private final TokenService tokenService;
-headers.setBearerAuth(apiProperties.getAccessToken());
+
+headers.setBearerAuth(tokenService.getAccessToken());
