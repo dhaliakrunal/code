@@ -806,3 +806,38 @@ public class TokenService {
 
 
 headers.setBearerAuth(tokenService.getAccessToken());
+
+
+
+
+@Service
+@RequiredArgsConstructor
+public class TokenService {
+
+    private final ApiAuthProperties authProperties;
+    private final RestTemplate restTemplate;
+
+    public String getAccessToken() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+
+        String body = "grant_type=" + authProperties.getGrantType()
+                    + "&client_id=" + authProperties.getClientId();
+
+        HttpEntity<String> request = new HttpEntity<>(body, headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                authProperties.getTokenUrl(),
+                HttpMethod.POST,
+                request,
+                String.class
+        );
+
+        // Extract access_token from response
+        return new ObjectMapper()
+                .readTree(response.getBody())
+                .get("access_token").asText();
+    }
+}
+
