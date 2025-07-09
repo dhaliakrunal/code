@@ -30,6 +30,84 @@ public List<MergedOutput> mergeAndDisplayData() {
         );
         List<KycDetails> kycDetailsList = mapper.readValue(kycResponse.getBody(), KycDetailsWrapper.class).getResults();
 
+        // Step 1: Extract all unique ptyIds from entity
+        List<Integer> allEntityPtyIds = wrappers.stream()
+                .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream())
+                .map(Identifiers::getPtyId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+
+        // Step 2: Match each ptyId against KYC and generate merged output
+        allEntityPtyIds.forEach(ptyId -> {
+            // Find entity wrapper that contains this ptyId
+            wrappers.stream()
+                    .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                    .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
+                            .anyMatch(id -> ptyId.equals(id.getPtyId())))
+                    .findFirst()
+                    .ifPresent(wrapper -> {
+                        // Match with KYC based on ptyId
+                        kycDetailsList.stream()
+                                .filter(kyc -> kyc.getIdentifiers() != null)
+                                .filter(kyc -> kyc.getIdentifiers().stream()
+                                        .anyMatch(kid -> ptyId.equals(kid.getPtyId())))
+                                .findFirst()
+                                .ifPresent(kyc -> {
+                                    MergedOutput output = new MergedOutput();
+                                    output.setIdentifiers(wrapper.getEntity().getIdentifiers());
+                                    output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                                    if (kyc.getKycData() != null) {
+                                        output.setKycSegment(kyc.getKycData().getKycSegment());
+                                        output.setKycSite(kyc.getKycData().getKycSite());
+                                        output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                    }
+
+                                    mergedResults.add(output);
+                                });
+                    });
+        });
+
+        return mergedResults;
+
+    } catch (Exception e) {
+        throw new RuntimeException("❌ Error during merge: " + e.getMessage(), e);
+    }
+}
+public List<MergedOutput> mergeAndDisplayData() {
+    List<MergedOutput> mergedResults = new ArrayList<>();
+
+    try {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        String accessToken = fetchAccessTokenFromHeader();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.set("Accept", "*/*;version=gamma");
+
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        ResponseEntity<String> entityResponse = restTemplate.exchange(
+                apiProperties.getEntitiesUrl(),
+                HttpMethod.GET,
+                request,
+                String.class
+        );
+        List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
+
+        ResponseEntity<String> kycResponse = restTemplate.exchange(
+                apiProperties.getKycUrl(),
+                HttpMethod.GET,
+                request,
+                String.class
+        );
+        List<KycDetails> kycDetailsList = mapper.readValue(kycResponse.getBody(), KycDetailsWrapper.class).getResults();
+
         wrappers.stream()
                 .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
                 .flatMap(wrapper ->
