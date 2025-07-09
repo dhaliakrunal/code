@@ -22,6 +22,135 @@ public class JsonReaderService {
 
     public List<MergedOutput> mergeAndDisplayData() {
         List<MergedOutput> mergedResults = new ArrayList<>();
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+            String accessToken = fetchAccessTokenFromHeader();
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(accessToken);
+            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+            headers.set("Accept", "*/*;version=gamma");
+
+            HttpEntity<Void> request = new HttpEntity<>(headers);
+
+            // Fetch entities API data
+            ResponseEntity<String> entityResponse = restTemplate.exchange(
+                    apiProperties.getEntitiesUrl(),
+                    HttpMethod.GET,
+                    request,
+                    String.class
+            );
+            List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
+
+            // Fetch kyc API data
+            ResponseEntity<String> kycResponse = restTemplate.exchange(
+                    apiProperties.getKycUrl(),
+                    HttpMethod.GET,
+                    request,
+                    String.class
+            );
+            List<KycDetails> kycDetailsList = mapper.readValue(kycResponse.getBody(), KycDetailsWrapper.class).getResults();
+
+            // Matching logic: per kycId
+            for (KycDetails kyc : kycDetailsList) {
+                if (kyc.getIdentifiers() == null) continue;
+
+                for (Identifiers kycId : kyc.getIdentifiers()) {
+                    boolean matchFound = false;
+
+                    for (Wrapper wrapper : wrappers) {
+                        if (wrapper.getEntity() == null || wrapper.getEntity().getIdentifiers() == null) continue;
+
+                        for (Identifiers entId : wrapper.getEntity().getIdentifiers()) {
+                            if (entId.getPtyId() != null && entId.getPtyId().equals(kycId.getPtyId())) {
+                                MergedOutput output = new MergedOutput();
+
+                                // Set only matched ptyId as list
+                                output.setIdentifiers(List.of(kycId));
+                                output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                                if (kyc.getKycData() != null) {
+                                    output.setKycSegment(kyc.getKycData().getKycSegment());
+                                    output.setKycSite(kyc.getKycData().getKycSite());
+                                    output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                }
+
+                                mergedResults.add(output);
+                                matchFound = true;
+                                break;
+                            }
+                        }
+
+                        if (matchFound) break;
+                    }
+
+                    if (!matchFound) {
+                        System.out.println("❗ No match found for ptyId: " + kycId.getPtyId());
+                    }
+                }
+            }
+
+            return mergedResults;
+
+        } catch (Exception e) {
+            throw new RuntimeException("❌ Error during merge: " + e.getMessage(), e);
+        }
+    }
+
+    private String fetchAccessTokenFromHeader() {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", apiProperties.getTokenAuthHeader());
+            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+
+            HttpEntity<Void> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    apiProperties.getTokenUrl(),
+                    HttpMethod.POST,
+                    request,
+                    String.class
+            );
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                JsonNode json = new ObjectMapper().readTree(response.getBody());
+                return json.get("access_token").asText();
+            } else {
+                throw new RuntimeException("❌ Token fetch failed: " + response.getStatusCode());
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException("❌ Error fetching token: " + e.getMessage(), e);
+        }
+    }
+}
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.config.ApiProperties;
+import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class JsonReaderService {
+
+    private final ApiProperties apiProperties;
+    private final RestTemplate restTemplate;
+
+    public List<MergedOutput> mergeAndDisplayData() {
+        List<MergedOutput> mergedResults = new ArrayList<>();
         List<Integer> unmatchedPtyIds = new ArrayList<>();
 
         try {
