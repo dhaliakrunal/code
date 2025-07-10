@@ -23,6 +23,96 @@ public List<MergedOutput> mergeAndDisplayData() {
 
         List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
 
+        // Step 1: Extract all unique ptyIds
+        List<Integer> allPtyIds = wrappers.stream()
+                .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream())
+                .map(Identifiers::getPtyId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        for (Integer ptyId : allPtyIds) {
+            String kycUrlWithPtyId = apiProperties.getKycUrl() + "?ptyId=" + ptyId;
+
+            ResponseEntity<String> kycResponse = restTemplate.exchange(
+                    kycUrlWithPtyId,
+                    HttpMethod.GET,
+                    request,
+                    String.class
+            );
+
+            if (!kycResponse.getStatusCode().is2xxSuccessful() || kycResponse.getBody() == null || kycResponse.getBody().isBlank()) {
+                continue;
+            }
+
+            // Parse the JSON and extract 'results' array
+            JsonNode root = mapper.readTree(kycResponse.getBody());
+            JsonNode resultsNode = root.get("results");
+
+            if (resultsNode == null || !resultsNode.isArray() || resultsNode.isEmpty()) {
+                continue; // no usable data
+            }
+
+            List<KycDetails> kycList = mapper.readValue(
+                    resultsNode.toString(),
+                    mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
+            );
+
+            for (KycDetails kyc : kycList) {
+                if (kyc == null || kyc.getKycData() == null || kyc.getIdentifiers() == null || kyc.getIdentifiers().isEmpty()) {
+                    continue;
+                }
+
+                wrappers.stream()
+                        .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                        .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
+                                .anyMatch(id -> ptyId.equals(id.getPtyId())))
+                        .forEach(wrapper -> {
+                            MergedOutput output = new MergedOutput();
+                            output.setIdentifiers(wrapper.getEntity().getIdentifiers());
+                            output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                            output.setKycSegment(kyc.getKycData().getKycSegment());
+                            output.setKycSite(kyc.getKycData().getKycSite());
+                            output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+
+                            mergedResults.add(output);
+                        });
+            }
+        }
+
+        return mergedResults;
+
+    } catch (Exception e) {
+        throw new RuntimeException("❌ Error during merge: " + e.getMessage(), e);
+    }
+}
+public List<MergedOutput> mergeAndDisplayData() {
+    List<MergedOutput> mergedResults = new ArrayList<>();
+
+    try {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        String accessToken = fetchAccessTokenFromHeader();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.set("Accept", "*/*;version=gamma");
+
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        ResponseEntity<String> entityResponse = restTemplate.exchange(
+                apiProperties.getEntitiesUrl(),
+                HttpMethod.GET,
+                request,
+                String.class
+        );
+
+        List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
+
         // Extract all unique ptyIds
         List<Integer> allPtyIds = wrappers.stream()
                 .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
