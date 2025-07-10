@@ -20,6 +20,99 @@ public List<MergedOutput> mergeAndDisplayData() {
                 request,
                 String.class
         );
+
+        List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
+
+        // Extract all unique ptyIds
+        List<Integer> allPtyIds = wrappers.stream()
+                .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream())
+                .map(Identifiers::getPtyId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+
+        for (Integer ptyId : allPtyIds) {
+            String kycUrlWithPtyId = apiProperties.getKycUrl() + "?ptyId=" + ptyId;
+
+            ResponseEntity<String> kycResponse = restTemplate.exchange(
+                    kycUrlWithPtyId,
+                    HttpMethod.GET,
+                    request,
+                    String.class
+            );
+
+            if (!kycResponse.getStatusCode().is2xxSuccessful() || kycResponse.getBody() == null || kycResponse.getBody().isBlank()) {
+                continue;
+            }
+
+            // Read JSON node to check if response is array or object
+            JsonNode jsonNode = mapper.readTree(kycResponse.getBody());
+
+            List<KycDetails> kycList = new ArrayList<>();
+
+            if (jsonNode.isArray()) {
+                kycList = mapper.readValue(
+                        kycResponse.getBody(),
+                        mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
+                );
+            } else if (jsonNode.isObject()) {
+                KycDetails kyc = mapper.treeToValue(jsonNode, KycDetails.class);
+                if (kyc != null) {
+                    kycList.add(kyc);
+                }
+            }
+
+            // Loop through all matching KYC records
+            for (KycDetails kyc : kycList) {
+                wrappers.stream()
+                        .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                        .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
+                                .anyMatch(id -> ptyId.equals(id.getPtyId())))
+                        .forEach(wrapper -> {
+                            MergedOutput output = new MergedOutput();
+                            output.setIdentifiers(wrapper.getEntity().getIdentifiers());
+                            output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                            if (kyc.getKycData() != null) {
+                                output.setKycSegment(kyc.getKycData().getKycSegment());
+                                output.setKycSite(kyc.getKycData().getKycSite());
+                                output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                            }
+
+                            mergedResults.add(output);
+                        });
+            }
+        }
+
+        return mergedResults;
+
+    } catch (Exception e) {
+        throw new RuntimeException("❌ Error during merge: " + e.getMessage(), e);
+    }
+}
+public List<MergedOutput> mergeAndDisplayData() {
+    List<MergedOutput> mergedResults = new ArrayList<>();
+
+    try {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        String accessToken = fetchAccessTokenFromHeader();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.set("Accept", "*/*;version=gamma");
+
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        ResponseEntity<String> entityResponse = restTemplate.exchange(
+                apiProperties.getEntitiesUrl(),
+                HttpMethod.GET,
+                request,
+                String.class
+        );
         List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
 
         // Extract all unique ptyIds
