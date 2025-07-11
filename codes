@@ -221,3 +221,74 @@ public class JsonReaderService {
         return json.get("access_token").asText();
     }
 }
+
+
+
+
+
+package com.example.jsonreader.exception;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+
+import java.time.LocalDateTime;
+
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(NullPointerException.class)
+    public ResponseEntity<ApiErrorWrapper> handleNullPointer(NullPointerException ex, HttpServletRequest request) {
+        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request);
+    }
+
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<ApiErrorWrapper> handleRuntime(RuntimeException ex, HttpServletRequest request) {
+        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request);
+    }
+
+    @ExceptionHandler(HttpClientErrorException.class)
+    public ResponseEntity<ApiErrorWrapper> handleClientError(HttpClientErrorException ex, HttpServletRequest request) {
+        return buildErrorResponse(ex, ex.getStatusCode(), request);
+    }
+
+    @ExceptionHandler(HttpServerErrorException.class)
+    public ResponseEntity<ApiErrorWrapper> handleServerError(HttpServerErrorException ex, HttpServletRequest request) {
+        return buildErrorResponse(ex, ex.getStatusCode(), request);
+    }
+
+    @ExceptionHandler(JsonProcessingException.class)
+    public ResponseEntity<ApiErrorWrapper> handleJsonProcessing(JsonProcessingException ex, HttpServletRequest request) {
+        return buildErrorResponse(ex, HttpStatus.BAD_REQUEST, request);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiErrorWrapper> handleGeneric(Exception ex, HttpServletRequest request) {
+        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request);
+    }
+
+    private ResponseEntity<ApiErrorWrapper> buildErrorResponse(Exception ex, HttpStatus status, HttpServletRequest request) {
+        log.error("❌ Exception occurred: [{}] {}", ex.getClass().getSimpleName(), ex.getMessage(), ex);
+
+        ErrorResponse error = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(status.value())
+                .error(ex.getClass().getSimpleName())
+                .message("❌ " + ex.getMessage())
+                .path(request.getRequestURI())
+                .build();
+
+        ApiErrorWrapper wrapper = ApiErrorWrapper.builder()
+                .success(false)
+                .error(error)
+                .build();
+
+        return new ResponseEntity<>(wrapper, status);
+    }
+}
+
