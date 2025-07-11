@@ -94,3 +94,130 @@ public class ApiErrorWrapper {
     private ErrorResponse error;
 }
 
+
+
+
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.config.ApiProperties;
+import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class JsonReaderService {
+
+    private final ApiProperties apiProperties;
+    private final RestTemplate restTemplate;
+
+    public List<MergedOutput> mergeAndDisplayData() {
+
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        String accessToken = fetchAccessTokenFromHeader();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.set("Accept", "*/*;version=gamma");
+
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        // Fetch Entities
+        ResponseEntity<String> entityResponse = restTemplate.exchange(
+                apiProperties.getEntitiesUrl(),
+                HttpMethod.GET,
+                request,
+                String.class
+        );
+
+        List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
+
+        // Extract all distinct ptyIds
+        List<Integer> allPtyIds = wrappers.stream()
+                .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream())
+                .map(Identifiers::getPtyId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        List<MergedOutput> mergedResults = new ArrayList<>();
+
+        for (Integer ptyId : allPtyIds) {
+
+            String kycUrlWithPtyId = apiProperties.getKycUrl() + "?ptyId=" + ptyId;
+
+            ResponseEntity<String> kycResponse = restTemplate.exchange(
+                    kycUrlWithPtyId,
+                    HttpMethod.GET,
+                    request,
+                    String.class
+            );
+
+            JsonNode root = mapper.readTree(kycResponse.getBody());
+            JsonNode resultsNode = root.get("results");
+
+            if (resultsNode == null || !resultsNode.isArray() || resultsNode.isEmpty()) {
+                continue; // no usable KYC data
+            }
+
+            List<KycDetails> kycList = mapper.readValue(
+                    resultsNode.toString(),
+                    mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
+            );
+
+            for (KycDetails kyc : kycList) {
+                if (kyc == null || kyc.getKycData() == null || kyc.getIdentifiers() == null || kyc.getIdentifiers().isEmpty()) {
+                    continue;
+                }
+
+                wrappers.stream()
+                        .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                        .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
+                                .anyMatch(id -> ptyId.equals(id.getPtyId())))
+                        .forEach(wrapper -> {
+                            MergedOutput output = new MergedOutput();
+                            output.setIdentifiers(wrapper.getEntity().getIdentifiers());
+                            output.setBusinessGroup(wrapper.getBusinessGroup());
+                            output.setKycSegment(kyc.getKycData().getKycSegment());
+                            output.setKycSite(kyc.getKycData().getKycSite());
+                            output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                            mergedResults.add(output);
+                        });
+            }
+        }
+
+        return mergedResults;
+    }
+
+    private String fetchAccessTokenFromHeader() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", apiProperties.getTokenAuthHeader());
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                apiProperties.getTokenUrl(),
+                HttpMethod.POST,
+                request,
+                String.class
+        );
+
+        JsonNode json = new ObjectMapper().readTree(response.getBody());
+        return json.get("access_token").asText();
+    }
+}
