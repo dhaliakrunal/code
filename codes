@@ -127,3 +127,46 @@ public class CsvExportController {
         return ResponseEntity.ok("✅ CSV report generated at: " + csvOutputPath);
     }
 }
+
+
+
+
+
+
+
+
+
+package com.sunscreening.jsonreader.controller;
+
+import com.sunscreening.jsonreader.config.CsvFileProperties;
+import com.sunscreening.jsonreader.model.MergedOutput;
+import com.sunscreening.jsonreader.service.JsonReaderService;
+import com.sunscreening.jsonreader.util.CsvExportUtil;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/report")
+@RequiredArgsConstructor
+public class CsvExportController {
+
+    private final JsonReaderService jsonReaderService;
+    private final CsvFileProperties csvFileProperties;
+
+    @GetMapping("/download")
+    public ResponseEntity<String> downloadCsvReport() {
+        // Step 1: Fetch merged data
+        List<MergedOutput> mergedData = jsonReaderService.mergeAndDisplayData();
+
+        // Step 2: Export to CSV using configured path
+        String outputPath = csvFileProperties.getOutputPath();
+        CsvExportUtil.exportToCsv(mergedData, outputPath);
+
+        // Step 3: Return success response
+        return ResponseEntity.ok("✅ CSV report generated at: " + outputPath);
+    }
+}
+
