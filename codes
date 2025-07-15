@@ -1,178 +1,155 @@
 package com.example.jsonreader.service;
 
-import com.example.jsonreader.config.ApiProperties;
 import com.example.jsonreader.model.*;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opencsv.CSVWriter;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
-import java.util.*;
+import java.util.List;
 
 @Service
-@RequiredArgsConstructor
-public class JsonReaderService {
+public class CsvReportService {
 
-    private final ApiProperties apiProperties;
-    private final RestTemplate restTemplate;
+    private static final String OUTPUT_FILE = "merged_report.csv";
 
-    public List<MergedOutput> mergeAndDisplayData() {
-        List<MergedOutput> mergedResults = new ArrayList<>();
-
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-            String accessToken = fetchAccessTokenFromHeader();
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(accessToken);
-            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-            headers.set("Accept", "*/*;version=gamma");
-
-            HttpEntity<Void> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> entityResponse = restTemplate.exchange(
-                    apiProperties.getEntitiesUrl(),
-                    HttpMethod.GET,
-                    request,
-                    String.class
-            );
-
-            List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
-
-            List<Integer> allPtyIds = wrappers.stream()
-                    .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
-                    .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream())
-                    .map(Identifiers::getPtyId)
-                    .filter(Objects::nonNull)
-                    .distinct()
-                    .toList();
-
-            for (Integer ptyId : allPtyIds) {
-                String kycUrlWithPtyId = apiProperties.getKycUrl() + "?ptyId=" + ptyId;
-
-                ResponseEntity<String> kycResponse = restTemplate.exchange(
-                        kycUrlWithPtyId,
-                        HttpMethod.GET,
-                        request,
-                        String.class
-                );
-
-                JsonNode resultsNode = null;
-                List<KycDetails> kycList = new ArrayList<>();
-
-                if (kycResponse.getStatusCode().is2xxSuccessful() &&
-                        kycResponse.getBody() != null && !kycResponse.getBody().isBlank()) {
-
-                    JsonNode root = mapper.readTree(kycResponse.getBody());
-                    resultsNode = root.get("results");
-
-                    if (resultsNode != null && resultsNode.isArray() && !resultsNode.isEmpty()) {
-                        kycList = mapper.readValue(
-                                resultsNode.toString(),
-                                mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
-                        );
-                    }
-                }
-
-                wrappers.stream()
-                        .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
-                        .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
-                                .anyMatch(id -> ptyId.equals(id.getPtyId())))
-                        .forEach(wrapper -> {
-                            MergedOutput output = new MergedOutput();
-                            output.setIdentifiers(wrapper.getEntity().getIdentifiers());
-                            output.setBusinessGroup(wrapper.getBusinessGroup());
-
-                            for (KycDetails kyc : kycList) {
-                                if (kyc != null && kyc.getKycData() != null && kyc.getIdentifiers() != null &&
-                                        kyc.getIdentifiers().stream().anyMatch(id -> ptyId.equals(id.getPtyId()))) {
-
-                                    output.setKycSegment(kyc.getKycData().getKycSegment());
-                                    output.setKycSite(kyc.getKycData().getKycSite());
-                                    output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
-                                    break;
-                                }
-                            }
-
-                            mergedResults.add(output);
-                        });
-            }
-
-            // After merging, export selected fields to CSV
-            exportCsvReport(mergedResults, "merged_report.csv");
-
-            return mergedResults;
-
-        } catch (Exception e) {
-            throw new RuntimeException("❌ Error during merge: " + e.getMessage(), e);
-        }
-    }
-
-    private String fetchAccessTokenFromHeader() {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("Authorization", apiProperties.getTokenAuthHeader());
-            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-
-            HttpEntity<Void> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    apiProperties.getTokenUrl(),
-                    HttpMethod.POST,
-                    request,
-                    String.class
-            );
-
-            if (response.getStatusCode().is2xxSuccessful()) {
-                JsonNode json = new ObjectMapper().readTree(response.getBody());
-                return json.get("access_token").asText();
-            } else {
-                throw new RuntimeException("❌ Token fetch failed: " + response.getStatusCode());
-            }
-
-        } catch (Exception e) {
-            throw new RuntimeException("❌ Error fetching token: " + e.getMessage(), e);
-        }
-    }
-
-    // ✨ Generate CSV Report with semicolon (;) separator
-    public void exportCsvReport(List<MergedOutput> mergedData, String outputPath) {
+    public String generateCsvReport(List<MergedOutput> mergedData) {
         try (
-                Writer writer = new FileWriter(outputPath);
+                Writer writer = new FileWriter(OUTPUT_FILE);
                 CSVWriter csvWriter = new CSVWriter(
                         writer,
-                        ';', // Use semicolon
+                        ';', // Semicolon separator
                         CSVWriter.NO_QUOTE_CHARACTER,
                         CSVWriter.DEFAULT_ESCAPE_CHARACTER,
                         CSVWriter.DEFAULT_LINE_END
                 )
         ) {
             // Write header
-            csvWriter.writeNext(new String[]{"crdsCode", "kycSite"});
+            csvWriter.writeNext(new String[]{
+                    "crdsCode",
+                    "bnppSite",
+                    "siteCountry",
+                    "siteStatus",
+                    "kycSegment",
+                    "riskIndustry",
+                    "regAddressAllInLine",
+                    "regAddressCountry"
+            });
 
             // Write rows
             for (MergedOutput output : mergedData) {
-                if (output.getIdentifiers() != null) {
-                    for (Identifiers id : output.getIdentifiers()) {
+                List<Identifiers> identifiers = output.getIdentifiers();
+                KycSite site = output.getKycSite();
+                KycRiskIndustry riskIndustry = output.getKycRiskIndustry();
+                RegistrationAddress regAddress = output.getRegistrationAddress();
+
+                String kycSegment = output.getKycSegment();
+
+                String bnppSite = site != null ? site.getBnppSite() : "";
+                String siteCountry = site != null ? site.getCountry() : "";
+                String siteStatus = site != null ? site.getStatus() : "";
+
+                String riskIndustryFormatted = (riskIndustry != null)
+                        ? riskIndustry.getCode() + " - " + riskIndustry.getDescription()
+                        : "";
+
+                String regAddressAllInLine = (regAddress != null)
+                        ? String.join(", ",
+                        nonNull(regAddress.getLine1()),
+                        nonNull(regAddress.getLine2()),
+                        nonNull(regAddress.getCity()),
+                        nonNull(regAddress.getState()))
+                        : "";
+
+                String regAddressCountry = (regAddress != null) ? regAddress.getCountry() : "";
+
+                if (identifiers != null) {
+                    for (Identifiers id : identifiers) {
                         String crdsCode = id.getCrdsCode();
-                        String kycSite = output.getKycSite();
-                        csvWriter.writeNext(new String[]{crdsCode, kycSite});
+
+                        csvWriter.writeNext(new String[]{
+                                crdsCode,
+                                bnppSite,
+                                siteCountry,
+                                siteStatus,
+                                kycSegment != null ? kycSegment : "",
+                                riskIndustryFormatted,
+                                regAddressAllInLine,
+                                regAddressCountry
+                        });
                     }
                 }
             }
 
-            System.out.println("✅ CSV report generated at: " + outputPath);
+            System.out.println("✅ CSV generated at: " + OUTPUT_FILE);
+            return OUTPUT_FILE;
+
         } catch (IOException e) {
-            throw new RuntimeException("❌ Failed to write CSV: " + e.getMessage(), e);
+            throw new RuntimeException("❌ Error writing CSV: " + e.getMessage(), e);
         }
+    }
+
+    private String nonNull(String value) {
+        return value != null ? value : "";
+    }
+}
+
+
+
+
+
+package com.example.jsonreader.controller;
+
+import com.example.jsonreader.model.MergedOutput;
+import com.example.jsonreader.service.CsvReportService;
+import com.example.jsonreader.service.JsonReaderService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.File;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api")
+@RequiredArgsConstructor
+public class JsonReaderController {
+
+    private final JsonReaderService jsonReaderService;
+    private final CsvReportService csvReportService;
+
+    // Endpoint to return merged data as JSON
+    @GetMapping("/merged-data")
+    public ResponseEntity<List<MergedOutput>> getMergedData() {
+        List<MergedOutput> mergedData = jsonReaderService.mergeAndDisplayData();
+        return ResponseEntity.ok(mergedData);
+    }
+
+    // Endpoint to generate and download CSV
+    @GetMapping("/download/csv")
+    public ResponseEntity<Resource> downloadCsvReport() {
+        List<MergedOutput> mergedData = jsonReaderService.mergeAndDisplayData();
+
+        // Generate CSV
+        String filePath = csvReportService.generateCsvReport(mergedData);
+
+        File file = new File(filePath);
+        if (!file.exists()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
+
+        FileSystemResource resource = new FileSystemResource(file);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=merged_report.csv");
+        headers.setContentType(MediaType.parseMediaType("text/csv"));
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .contentLength(file.length())
+                .body(resource);
     }
 }
