@@ -1,59 +1,47 @@
-package com.sunscreening.jsonreader.csv;
+package com.sunscreening.jsonreader.service;
 
-import com.sunscreening.jsonreader.model.*;
+import com.sunscreening.jsonreader.model.MergedOutput;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.List;
 
-@Component
+@Service
 @RequiredArgsConstructor
-public class CsvReportGenerator {
+public class CSVReportService {
 
-    public void generateReport(List<MergedOutput> mergedData) throws IOException {
-        try (FileWriter writer = new FileWriter("merged_report.csv")) {
-            // Header
-            writer.write("CRDS Code;BNPP Site;Site Country;Site Status;KYC Segment;Risk Industry;Registration Address;Registration Country\n");
+    private final JsonReaderService jsonReaderService;
 
-            for (MergedOutput item : mergedData) {
+    public void generateCsvReport(String filePath) throws IOException {
+        List<MergedOutput> mergedList = jsonReaderService.mergeAndDisplayData();
+
+        try (FileWriter writer = new FileWriter(filePath)) {
+            // Write header
+            writer.write("crdsCode;bnppSite;siteCountry;siteStatus;kycSegment;riskIndustryCode;riskIndustryDesc;regLine1;regLine2;regCity;regState;regCountry\n");
+
+            for (MergedOutput item : mergedList) {
                 String crdsCode = item.getIdentifiers() != null && !item.getIdentifiers().isEmpty()
                         ? item.getIdentifiers().get(0).getCrdsCode() : "";
-
-                String bnppSite = "";
-                String siteCountry = "";
-                String siteStatus = "";
-                if (item.getKycSite() != null && !item.getKycSite().isEmpty()) {
-                    KycSite site = item.getKycSite().get(0); // Get first site for report
-                    bnppSite = site.getBnppSite() != null ? site.getBnppSite() : "";
-                    siteCountry = site.getSiteCountry() != null ? site.getSiteCountry() : "";
-                    siteStatus = site.getSiteStatus() != null ? site.getSiteStatus() : "";
-                }
-
+                String site = item.getKycSite() != null ? item.getKycSite().getBnppSite() : "";
+                String siteCountry = item.getKycSite() != null ? item.getKycSite().getCountry() : "";
+                String siteStatus = item.getKycSite() != null ? item.getKycSite().getStatus() : "";
                 String kycSegment = item.getKycSegment() != null ? item.getKycSegment() : "";
+                String riskCode = item.getKycRiskIndustry() != null ? item.getKycRiskIndustry().getCode() : "";
+                String riskDesc = item.getKycRiskIndustry() != null ? item.getKycRiskIndustry().getDescription() : "";
 
-                String riskIndustry = item.getKycRiskIndustry() != null
-                        ? item.getKycRiskIndustry().getCode() + "-" + item.getKycRiskIndustry().getDescription()
-                        : "";
+                String line1 = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getLine1() : "";
+                String line2 = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getLine2() : "";
+                String city = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getCity() : "";
+                String state = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getState() : "";
+                String country = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getCountry() : "";
 
-                String regAddress = "";
-                String regCountry = "";
-                if (item.getRegistrationAddress() != null) {
-                    RegistrationAddress reg = item.getRegistrationAddress();
-                    regAddress = String.join(" ",
-                            reg.getLine1() != null ? reg.getLine1() : "",
-                            reg.getLine2() != null ? reg.getLine2() : "",
-                            reg.getCity() != null ? reg.getCity() : "",
-                            reg.getState() != null ? reg.getState() : ""
-                    ).trim();
-
-                    regCountry = reg.getCountry() != null ? reg.getCountry() : "";
-                }
-
-                writer.write(String.format("%s;%s;%s;%s;%s;%s;%s;%s\n",
-                        crdsCode, bnppSite, siteCountry, siteStatus,
-                        kycSegment, riskIndustry, regAddress, regCountry));
+                writer.write(
+                    crdsCode + ";" + site + ";" + siteCountry + ";" + siteStatus + ";" +
+                    kycSegment + ";" + riskCode + ";" + riskDesc + ";" +
+                    line1 + ";" + line2 + ";" + city + ";" + state + ";" + country + "\n"
+                );
             }
         }
     }
@@ -61,26 +49,70 @@ public class CsvReportGenerator {
 
 
 
+
+
+
+
+
+
+
+package com.sunscreening.jsonreader.controller;
+
+import com.sunscreening.jsonreader.service.CSVReportService;
+import com.sunscreening.jsonreader.service.JsonReaderService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
 public class EntityController {
 
     private final JsonReaderService jsonReaderService;
-    private final CsvReportGenerator csvReportGenerator;
+    private final CSVReportService csvReportService;
+
+    @GetMapping("/kyc-details")
+    public ResponseEntity<?> getMergedOutput() {
+        return ResponseEntity.ok(jsonReaderService.mergeAndDisplayData());
+    }
 
     @GetMapping("/download/csv")
-    public ResponseEntity<String> downloadCsv() {
-        List<MergedOutput> mergedData = jsonReaderService.mergeAndDisplayData();
-
+    public ResponseEntity<Resource> downloadCsv() {
         try {
-            csvReportGenerator.generateReport(mergedData);
-            return ResponseEntity.ok("✅ CSV report generated as 'merged_report.csv'");
+            // Generate CSV file
+            String filePath = "src/main/resources/merged_report.csv";
+            csvReportService.generateCsvReport(filePath);
+
+            // Prepare the file for download
+            File file = new File(filePath);
+            if (!file.exists()) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(null);
+            }
+
+            InputStreamResource resource = new InputStreamResource(new FileInputStream(file));
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentDisposition(ContentDisposition.builder("attachment")
+                    .filename("merged_report.csv")
+                    .build());
+            headers.setContentType(MediaType.parseMediaType("text/csv"));
+
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .contentLength(file.length())
+                    .body(resource);
+
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("❌ Failed to generate CSV report: " + e.getMessage());
+                    .build();
         }
     }
 }
-
-
