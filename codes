@@ -1,342 +1,27 @@
-✅ 1. application.properties
-properties
-Copy
-Edit
-csv.output-path=src/main/resources/merged_output.csv
-✅ 2. CsvFileProperties.java
-java
-Copy
-Edit
-import lombok.Getter;
-import lombok.Setter;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
+package com.example.jsonreader.service;
 
-@Getter
-@Setter
-@Component
-@ConfigurationProperties(prefix = "csv")
-public class CsvFileProperties {
-    private String outputPath;
-}
-✅ 3. Model Classes
-Identifiers.java
-java
-Copy
-Edit
-import lombok.Data;
+import com.example.jsonreader.config.ApiProperties;
+import com.example.jsonreader.model.*;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.opencsv.CSVWriter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
-@Data
-public class Identifiers {
-    private String crdsCode;
-}
-Address.java
-java
-Copy
-Edit
-import lombok.Data;
-
-@Data
-public class Address {
-    private String fullAddressLine;
-    private String country;
-}
-RiskIndustry.java
-java
-Copy
-Edit
-import lombok.Data;
-
-@Data
-public class RiskIndustry {
-    private String code;
-    private String description;
-}
-MergedOutput.java
-java
-Copy
-Edit
-import lombok.Data;
-import java.util.List;
-
-@Data
-public class MergedOutput {
-    private List<Identifiers> identifiers;
-    private Address registeredAddress;
-    private String bnppSite;
-    private String siteCountry;
-    private String siteStatus;
-    private String kycSegment;
-    private RiskIndustry riskIndustry;
-}
-✅ 4. CsvWriter.java
-java
-Copy
-Edit
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.List;
-
-public class CsvWriter {
-
-    public static void writeToCsv(List<MergedOutput> mergedData, String filePath) {
-        try (FileWriter writer = new FileWriter(filePath)) {
-            // Write Header
-            writer.append("crdsCode;registeredAddress;registeredAddressCountry;bnppSite;siteCountry;siteStatus;kycSegment;riskIndustry\n");
-
-            // Write Records
-            for (MergedOutput item : mergedData) {
-                String crdsCode = item.getIdentifiers() != null && !item.getIdentifiers().isEmpty()
-                        ? item.getIdentifiers().get(0).getCrdsCode() : "";
-
-                String regAddress = item.getRegisteredAddress() != null
-                        ? item.getRegisteredAddress().getFullAddressLine() : "";
-
-                String regCountry = item.getRegisteredAddress() != null
-                        ? item.getRegisteredAddress().getCountry() : "";
-
-                String bnppSite = item.getBnppSite() != null ? item.getBnppSite() : "";
-                String siteCountry = item.getSiteCountry() != null ? item.getSiteCountry() : "";
-                String siteStatus = item.getSiteStatus() != null ? item.getSiteStatus() : "";
-                String kycSegment = item.getKycSegment() != null ? item.getKycSegment() : "";
-
-                String riskIndustry = "";
-                if (item.getRiskIndustry() != null) {
-                    String code = item.getRiskIndustry().getCode() != null ? item.getRiskIndustry().getCode() : "";
-                    String desc = item.getRiskIndustry().getDescription() != null ? item.getRiskIndustry().getDescription() : "";
-                    riskIndustry = code + "-" + desc;
-                }
-
-                writer.append(crdsCode).append(";")
-                      .append(regAddress).append(";")
-                      .append(regCountry).append(";")
-                      .append(bnppSite).append(";")
-                      .append(siteCountry).append(";")
-                      .append(siteStatus).append(";")
-                      .append(kycSegment).append(";")
-                      .append(riskIndustry).append("\n");
-            }
-
-            System.out.println("CSV written to: " + filePath);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-}
-✅ 5. MergedDataService.java
-java
-Copy
-Edit
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import java.util.List;
-
-@Service
-@RequiredArgsConstructor
-public class MergedDataService {
-
-    private final CsvFileProperties csvFileProperties;
-
-    public void saveToCsv(List<MergedOutput> mergedData) {
-        CsvWriter.writeToCsv(mergedData, csvFileProperties.getOutputPath());
-    }
-}
-✅ 6. REST Controller (Optional): CsvDownloadController.java
-java
-Copy
-Edit
-import lombok.RequiredArgsConstructor;
-import org.springframework.core.io.InputStreamResource;
-import org.springframework.core.io.Resource;
-import org.springframework.http.*;
-import org.springframework.web.bind.annotation.*;
-
-import java.io.*;
-
-@RestController
-@RequiredArgsConstructor
-@RequestMapping("/api/csv")
-public class CsvDownloadController {
-
-    private final CsvFileProperties csvFileProperties;
-
-    @GetMapping("/download")
-    public ResponseEntity<Resource> downloadCsv() throws IOException {
-        File file = new File(csvFileProperties.getOutputPath());
-        if (!file.exists()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        InputStreamResource resource = new InputStreamResource(new FileInputStream(file));
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=merged_output.csv")
-                .contentType(MediaType.parseMediaType("text/csv"))
-                .body(resource);
-    }
-}
-✅ 7. Enable Configuration in Main Class
-java
-Copy
-Edit
-@SpringBootApplication
-@EnableConfigurationProperties({CsvFileProperties.class})
-public class YourApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(YourApplication.class, args);
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-public List<MergedOutput> mergeAndDisplayData() {
-    List<MergedOutput> mergedResults = new ArrayList<>();
-
-    try {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-        String accessToken = fetchAccessTokenFromHeader();
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(accessToken);
-        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-        headers.set("Accept", "*/*;version=gamma");
-
-        HttpEntity<Void> request = new HttpEntity<>(headers);
-
-        ResponseEntity<String> entityResponse = restTemplate.exchange(
-                apiProperties.getEntitiesUrl(),
-                HttpMethod.GET,
-                request,
-                String.class
-        );
-
-        List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
-
-        List<Integer> allPtyIds = wrappers.stream()
-                .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
-                .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream())
-                .map(Identifiers::getPtyId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-
-        for (Integer ptyId : allPtyIds) {
-            String kycUrlWithPtyId = apiProperties.getKycUrl() + "?ptyId=" + ptyId;
-
-            ResponseEntity<String> kycResponse = restTemplate.exchange(
-                    kycUrlWithPtyId,
-                    HttpMethod.GET,
-                    request,
-                    String.class
-            );
-
-            JsonNode resultsNode = null;
-            List<KycDetails> kycList = new ArrayList<>();
-
-            if (kycResponse.getStatusCode().is2xxSuccessful() &&
-                kycResponse.getBody() != null && !kycResponse.getBody().isBlank()) {
-
-                JsonNode root = mapper.readTree(kycResponse.getBody());
-                resultsNode = root.get("results");
-
-                if (resultsNode != null && resultsNode.isArray() && !resultsNode.isEmpty()) {
-                    kycList = mapper.readValue(
-                            resultsNode.toString(),
-                            mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
-                    );
-                }
-            }
-
-            // Always add output, even if no KYC match
-            wrappers.stream()
-                    .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
-                    .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
-                            .anyMatch(id -> ptyId.equals(id.getPtyId())))
-                    .forEach(wrapper -> {
-                        MergedOutput output = new MergedOutput();
-                        output.setIdentifiers(wrapper.getEntity().getIdentifiers());
-                        output.setBusinessGroup(wrapper.getBusinessGroup());
-
-                        // Set KYC data if available
-                        for (KycDetails kyc : kycList) {
-                            if (kyc != null && kyc.getKycData() != null && kyc.getIdentifiers() != null &&
-                                kyc.getIdentifiers().stream().anyMatch(id -> ptyId.equals(id.getPtyId()))) {
-
-                                output.setKycSegment(kyc.getKycData().getKycSegment());
-                                output.setKycSite(kyc.getKycData().getKycSite());
-                                output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
-                                break;
-                            }
-                        }
-
-                        mergedResults.add(output);
-                    });
-        }
-
-        return mergedResults;
-
-    } catch (Exception e) {
-        throw new RuntimeException("❌ Error during merge: " + e.getMessage(), e);
-    }
-}
-package com.sunscreening.jsonreader.service;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.*;
-import com.sunscreening.jsonreader.config.ApiProperties;
-import com.sunscreening.jsonreader.model.*;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.*;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.*;
-
+import java.io.Writer;
 import java.util.*;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class JsonReaderService {
 
-    private final RestTemplate restTemplate;
     private final ApiProperties apiProperties;
+    private final RestTemplate restTemplate;
 
     public List<MergedOutput> mergeAndDisplayData() {
         List<MergedOutput> mergedResults = new ArrayList<>();
@@ -373,91 +58,63 @@ public class JsonReaderService {
 
             for (Integer ptyId : allPtyIds) {
                 String kycUrlWithPtyId = apiProperties.getKycUrl() + "?ptyId=" + ptyId;
-                log.info("Calling KYC URL: {}", kycUrlWithPtyId);
 
-                ResponseEntity<String> kycResponse = null;
-                int attempts = 0;
-
-                while (attempts < 3) {
-                    try {
-                        kycResponse = restTemplate.exchange(
-                                kycUrlWithPtyId,
-                                HttpMethod.GET,
-                                request,
-                                String.class
-                        );
-
-                        if (kycResponse.getStatusCode().is2xxSuccessful()) {
-                            break;
-                        }
-
-                        log.warn("Non-success KYC status for ptyId={}: {}", ptyId, kycResponse.getStatusCode());
-                        attempts++;
-                        Thread.sleep(200);
-
-                    } catch (HttpClientErrorException | HttpServerErrorException ex) {
-                        log.error("HTTP Error calling KYC API for ptyId={}: {}", ptyId, ex.getStatusCode());
-                        log.error("Response: {}", ex.getResponseBodyAsString());
-                        attempts++;
-                        Thread.sleep(200);
-                    } catch (Exception ex) {
-                        log.error("Unexpected error calling KYC API for ptyId={}: {}", ptyId, ex.getMessage());
-                        attempts++;
-                        Thread.sleep(200);
-                    }
-                }
-
-                if (kycResponse == null || !kycResponse.getStatusCode().is2xxSuccessful() || kycResponse.getBody() == null) {
-                    log.warn("Skipping ptyId={} due to empty or failed KYC response", ptyId);
-                    continue;
-                }
-
-                JsonNode root = mapper.readTree(kycResponse.getBody());
-                JsonNode resultsNode = root.get("results");
-
-                if (resultsNode == null || !resultsNode.isArray() || resultsNode.isEmpty()) {
-                    log.warn("No 'results' found for ptyId={}", ptyId);
-                    continue;
-                }
-
-                List<KycDetails> kycList = mapper.readValue(
-                        resultsNode.toString(),
-                        mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
+                ResponseEntity<String> kycResponse = restTemplate.exchange(
+                        kycUrlWithPtyId,
+                        HttpMethod.GET,
+                        request,
+                        String.class
                 );
 
-                for (KycDetails kyc : kycList) {
-                    if (kyc == null || kyc.getKycData() == null || kyc.getIdentifiers() == null) {
-                        continue;
+                JsonNode resultsNode = null;
+                List<KycDetails> kycList = new ArrayList<>();
+
+                if (kycResponse.getStatusCode().is2xxSuccessful() &&
+                        kycResponse.getBody() != null && !kycResponse.getBody().isBlank()) {
+
+                    JsonNode root = mapper.readTree(kycResponse.getBody());
+                    resultsNode = root.get("results");
+
+                    if (resultsNode != null && resultsNode.isArray() && !resultsNode.isEmpty()) {
+                        kycList = mapper.readValue(
+                                resultsNode.toString(),
+                                mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
+                        );
                     }
-
-                    wrappers.stream()
-                            .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
-                            .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
-                                    .anyMatch(id -> ptyId.equals(id.getPtyId())))
-                            .forEach(wrapper -> {
-                                MergedOutput output = new MergedOutput();
-                                output.setIdentifiers(wrapper.getEntity().getIdentifiers());
-                                output.setBusinessGroup(wrapper.getBusinessGroup());
-                                output.setRegistrationAddress(wrapper.getEntity().getRegistrationAddress());
-
-                                output.setKycSegment(kyc.getKycData().getKycSegment());
-                                output.setKycSite(kyc.getKycData().getKycSite());
-                                output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
-
-                                mergedResults.add(output);
-                            });
                 }
+
+                wrappers.stream()
+                        .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                        .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
+                                .anyMatch(id -> ptyId.equals(id.getPtyId())))
+                        .forEach(wrapper -> {
+                            MergedOutput output = new MergedOutput();
+                            output.setIdentifiers(wrapper.getEntity().getIdentifiers());
+                            output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                            for (KycDetails kyc : kycList) {
+                                if (kyc != null && kyc.getKycData() != null && kyc.getIdentifiers() != null &&
+                                        kyc.getIdentifiers().stream().anyMatch(id -> ptyId.equals(id.getPtyId()))) {
+
+                                    output.setKycSegment(kyc.getKycData().getKycSegment());
+                                    output.setKycSite(kyc.getKycData().getKycSite());
+                                    output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                    break;
+                                }
+                            }
+
+                            mergedResults.add(output);
+                        });
             }
 
-        } catch (JsonProcessingException e) {
-            log.error("JSON Processing error: {}", e.getMessage(), e);
-            throw new RuntimeException("❌ JSON processing failed", e);
-        } catch (Exception e) {
-            log.error("General error during merge: {}", e.getMessage(), e);
-            throw new RuntimeException("❌ Error during merge", e);
-        }
+            // After merging, export selected fields to CSV
+            exportCsvReport(mergedResults, "merged_report.csv");
 
-        return mergedResults;
+            return mergedResults;
+
+        } catch (Exception e) {
+            throw new RuntimeException("❌ Error during merge: " + e.getMessage(), e);
+        }
     }
 
     private String fetchAccessTokenFromHeader() {
@@ -483,302 +140,39 @@ public class JsonReaderService {
             }
 
         } catch (Exception e) {
-            log.error("Error fetching token: {}", e.getMessage(), e);
-            throw new RuntimeException("❌ Error fetching token", e);
+            throw new RuntimeException("❌ Error fetching token: " + e.getMessage(), e);
         }
     }
-}
-package com.example.jsonreader.exception;
 
-import jakarta.servlet.http.HttpServletRequest;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.*;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
+    // ✨ Generate CSV Report with semicolon (;) separator
+    public void exportCsvReport(List<MergedOutput> mergedData, String outputPath) {
+        try (
+                Writer writer = new FileWriter(outputPath);
+                CSVWriter csvWriter = new CSVWriter(
+                        writer,
+                        ';', // Use semicolon
+                        CSVWriter.NO_QUOTE_CHARACTER,
+                        CSVWriter.DEFAULT_ESCAPE_CHARACTER,
+                        CSVWriter.DEFAULT_LINE_END
+                )
+        ) {
+            // Write header
+            csvWriter.writeNext(new String[]{"crdsCode", "kycSite"});
 
-import java.time.LocalDateTime;
-
-@Slf4j
-@RestControllerAdvice
-public class GlobalExceptionHandler {
-
-    @ExceptionHandler(NullPointerException.class)
-    public ResponseEntity<ApiErrorWrapper> handleNullPointer(NullPointerException ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request);
-    }
-
-    @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<ApiErrorWrapper> handleRuntime(RuntimeException ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request);
-    }
-
-    @ExceptionHandler(HttpClientErrorException.class)
-    public ResponseEntity<ApiErrorWrapper> handleClientError(HttpClientErrorException ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, ex.getStatusCode(), request);
-    }
-
-    @ExceptionHandler(HttpServerErrorException.class)
-    public ResponseEntity<ApiErrorWrapper> handleServerError(HttpServerErrorException ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, ex.getStatusCode(), request);
-    }
-
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiErrorWrapper> handleGeneric(Exception ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request);
-    }
-
-    private ResponseEntity<ApiErrorWrapper> buildErrorResponse(Exception ex, HttpStatus status, HttpServletRequest request) {
-        log.error("❌ Exception occurred: [{}] {}", ex.getClass().getSimpleName(), ex.getMessage(), ex);
-
-        ErrorResponse error = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(status.value())
-                .error(ex.getClass().getSimpleName())
-                .message("❌ " + ex.getMessage())
-                .path(request.getRequestURI())
-                .build();
-
-        ApiErrorWrapper wrapper = ApiErrorWrapper.builder()
-                .success(false)
-                .error(error)
-                .build();
-
-        return new ResponseEntity<>(wrapper, status);
-    }
-}
-
-
-
-package com.example.jsonreader.exception;
-
-import lombok.*;
-
-import java.time.LocalDateTime;
-
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class ErrorResponse {
-    private LocalDateTime timestamp;
-    private int status;
-    private String error;
-    private String message;
-    private String path;
-}
-
-
-
-
-package com.example.jsonreader.exception;
-
-import lombok.*;
-
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class ApiErrorWrapper {
-    private boolean success;
-    private ErrorResponse error;
-}
-
-
-
-
-package com.example.jsonreader.service;
-
-import com.example.jsonreader.config.ApiProperties;
-import com.example.jsonreader.model.*;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.*;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
-
-import java.util.*;
-import java.util.stream.Collectors;
-
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class JsonReaderService {
-
-    private final ApiProperties apiProperties;
-    private final RestTemplate restTemplate;
-
-    public List<MergedOutput> mergeAndDisplayData() {
-
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-        String accessToken = fetchAccessTokenFromHeader();
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(accessToken);
-        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-        headers.set("Accept", "*/*;version=gamma");
-
-        HttpEntity<Void> request = new HttpEntity<>(headers);
-
-        // Fetch Entities
-        ResponseEntity<String> entityResponse = restTemplate.exchange(
-                apiProperties.getEntitiesUrl(),
-                HttpMethod.GET,
-                request,
-                String.class
-        );
-
-        List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
-
-        // Extract all distinct ptyIds
-        List<Integer> allPtyIds = wrappers.stream()
-                .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
-                .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream())
-                .map(Identifiers::getPtyId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
-
-        List<MergedOutput> mergedResults = new ArrayList<>();
-
-        for (Integer ptyId : allPtyIds) {
-
-            String kycUrlWithPtyId = apiProperties.getKycUrl() + "?ptyId=" + ptyId;
-
-            ResponseEntity<String> kycResponse = restTemplate.exchange(
-                    kycUrlWithPtyId,
-                    HttpMethod.GET,
-                    request,
-                    String.class
-            );
-
-            JsonNode root = mapper.readTree(kycResponse.getBody());
-            JsonNode resultsNode = root.get("results");
-
-            if (resultsNode == null || !resultsNode.isArray() || resultsNode.isEmpty()) {
-                continue; // no usable KYC data
-            }
-
-            List<KycDetails> kycList = mapper.readValue(
-                    resultsNode.toString(),
-                    mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
-            );
-
-            for (KycDetails kyc : kycList) {
-                if (kyc == null || kyc.getKycData() == null || kyc.getIdentifiers() == null || kyc.getIdentifiers().isEmpty()) {
-                    continue;
+            // Write rows
+            for (MergedOutput output : mergedData) {
+                if (output.getIdentifiers() != null) {
+                    for (Identifiers id : output.getIdentifiers()) {
+                        String crdsCode = id.getCrdsCode();
+                        String kycSite = output.getKycSite();
+                        csvWriter.writeNext(new String[]{crdsCode, kycSite});
+                    }
                 }
-
-                wrappers.stream()
-                        .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
-                        .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
-                                .anyMatch(id -> ptyId.equals(id.getPtyId())))
-                        .forEach(wrapper -> {
-                            MergedOutput output = new MergedOutput();
-                            output.setIdentifiers(wrapper.getEntity().getIdentifiers());
-                            output.setBusinessGroup(wrapper.getBusinessGroup());
-                            output.setKycSegment(kyc.getKycData().getKycSegment());
-                            output.setKycSite(kyc.getKycData().getKycSite());
-                            output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
-                            mergedResults.add(output);
-                        });
             }
+
+            System.out.println("✅ CSV report generated at: " + outputPath);
+        } catch (IOException e) {
+            throw new RuntimeException("❌ Failed to write CSV: " + e.getMessage(), e);
         }
-
-        return mergedResults;
-    }
-
-    private String fetchAccessTokenFromHeader() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Authorization", apiProperties.getTokenAuthHeader());
-        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-
-        HttpEntity<Void> request = new HttpEntity<>(headers);
-
-        ResponseEntity<String> response = restTemplate.exchange(
-                apiProperties.getTokenUrl(),
-                HttpMethod.POST,
-                request,
-                String.class
-        );
-
-        JsonNode json = new ObjectMapper().readTree(response.getBody());
-        return json.get("access_token").asText();
     }
 }
-
-
-
-
-
-package com.example.jsonreader.exception;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import jakarta.servlet.http.HttpServletRequest;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.*;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
-
-import java.time.LocalDateTime;
-
-@Slf4j
-@RestControllerAdvice
-public class GlobalExceptionHandler {
-
-    @ExceptionHandler(NullPointerException.class)
-    public ResponseEntity<ApiErrorWrapper> handleNullPointer(NullPointerException ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request);
-    }
-
-    @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<ApiErrorWrapper> handleRuntime(RuntimeException ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request);
-    }
-
-    @ExceptionHandler(HttpClientErrorException.class)
-    public ResponseEntity<ApiErrorWrapper> handleClientError(HttpClientErrorException ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, ex.getStatusCode(), request);
-    }
-
-    @ExceptionHandler(HttpServerErrorException.class)
-    public ResponseEntity<ApiErrorWrapper> handleServerError(HttpServerErrorException ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, ex.getStatusCode(), request);
-    }
-
-    @ExceptionHandler(JsonProcessingException.class)
-    public ResponseEntity<ApiErrorWrapper> handleJsonProcessing(JsonProcessingException ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, HttpStatus.BAD_REQUEST, request);
-    }
-
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiErrorWrapper> handleGeneric(Exception ex, HttpServletRequest request) {
-        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request);
-    }
-
-    private ResponseEntity<ApiErrorWrapper> buildErrorResponse(Exception ex, HttpStatus status, HttpServletRequest request) {
-        log.error("❌ Exception occurred: [{}] {}", ex.getClass().getSimpleName(), ex.getMessage(), ex);
-
-        ErrorResponse error = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(status.value())
-                .error(ex.getClass().getSimpleName())
-                .message("❌ " + ex.getMessage())
-                .path(request.getRequestURI())
-                .build();
-
-        ApiErrorWrapper wrapper = ApiErrorWrapper.builder()
-                .success(false)
-                .error(error)
-                .build();
-
-        return new ResponseEntity<>(wrapper, status);
-    }
-}
-
