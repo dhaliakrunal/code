@@ -1,55 +1,92 @@
-package com.sunscreening.jsonreader.service;
+package com.sunscreening.jsonreader.util;
 
-import com.sunscreening.jsonreader.model.MergedOutput;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.sunscreening.jsonreader.model.*;
 
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.List;
+import java.util.stream.Collectors;
 
-@Service
-@RequiredArgsConstructor
-public class CSVReportService {
+public class CsvExportUtil {
 
-    private final JsonReaderService jsonReaderService;
-
-    public void generateCsvReport(String filePath) throws IOException {
-        List<MergedOutput> mergedList = jsonReaderService.mergeAndDisplayData();
-
+    public static void exportToCsv(List<MergedOutput> mergedData, String filePath) {
         try (FileWriter writer = new FileWriter(filePath)) {
-            // Write header
-            writer.write("crdsCode;bnppSite;siteCountry;siteStatus;kycSegment;riskIndustryCode;riskIndustryDesc;regLine1;regLine2;regCity;regState;regCountry\n");
 
-            for (MergedOutput item : mergedList) {
-                String crdsCode = item.getIdentifiers() != null && !item.getIdentifiers().isEmpty()
-                        ? item.getIdentifiers().get(0).getCrdsCode() : "";
-                String site = item.getKycSite() != null ? item.getKycSite().getBnppSite() : "";
-                String siteCountry = item.getKycSite() != null ? item.getKycSite().getCountry() : "";
-                String siteStatus = item.getKycSite() != null ? item.getKycSite().getStatus() : "";
-                String kycSegment = item.getKycSegment() != null ? item.getKycSegment() : "";
-                String riskCode = item.getKycRiskIndustry() != null ? item.getKycRiskIndustry().getCode() : "";
-                String riskDesc = item.getKycRiskIndustry() != null ? item.getKycRiskIndustry().getDescription() : "";
+            // CSV Header
+            writer.write("CRDS CODE;Reg Address;Reg Address Country;BNPP Site;Site Country;Site Status;KYC Segment;Risk Industry\n");
 
-                String line1 = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getLine1() : "";
-                String line2 = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getLine2() : "";
-                String city = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getCity() : "";
-                String state = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getState() : "";
-                String country = item.getRegistrationAddress() != null ? item.getRegistrationAddress().getCountry() : "";
+            for (MergedOutput entity : mergedData) {
+                StringBuilder line = new StringBuilder();
 
-                writer.write(
-                    crdsCode + ";" + site + ";" + siteCountry + ";" + siteStatus + ";" +
-                    kycSegment + ";" + riskCode + ";" + riskDesc + ";" +
-                    line1 + ";" + line2 + ";" + city + ";" + state + ";" + country + "\n"
-                );
+                // 1. CRDS CODE
+                String crdsCode = "";
+                if (entity.getIdentifiers() != null && !entity.getIdentifiers().isEmpty()) {
+                    Identifiers id = entity.getIdentifiers().get(0);
+                    if (id.getCrdsCode() != null) {
+                        crdsCode = id.getCrdsCode();
+                    }
+                }
+                line.append(crdsCode).append(";");
+
+                // 2. Registration Address + Country
+                String fullAddress = "";
+                String regCountry = "";
+                RegistrationAddress regAddress = entity.getRegistrationAddress();
+                if (regAddress != null) {
+                    String line1 = regAddress.getLine1() != null ? regAddress.getLine1() : "";
+                    String line2 = regAddress.getLine2() != null ? regAddress.getLine2() : "";
+                    String city = regAddress.getCity() != null ? regAddress.getCity() : "";
+                    String state = regAddress.getState() != null ? regAddress.getState() : "";
+                    String zip = regAddress.getZipCode() != null ? regAddress.getZipCode() : "";
+
+                    fullAddress = (line1 + " " + line2 + " " + city + " " + state + " " + zip).trim();
+                    regCountry = regAddress.getCountry() != null ? regAddress.getCountry() : "";
+                }
+                line.append(fullAddress).append(";");
+                line.append(regCountry).append(";");
+
+                // 3. KYC Site
+                String bnppSite = "", siteCountry = "", siteStatus = "";
+                if (entity.getKycSite() != null && !entity.getKycSite().isEmpty()) {
+                    KycSite site = entity.getKycSite().get(0);
+                    bnppSite = site.getSiteBnpp() != null ? site.getSiteBnpp() : "";
+                    siteCountry = site.getSiteCountry() != null ? site.getSiteCountry() : "";
+                    siteStatus = site.getSiteStatus() != null ? site.getSiteStatus() : "";
+                }
+                line.append(bnppSite).append(";");
+                line.append(siteCountry).append(";");
+                line.append(siteStatus).append(";");
+
+                // 4. KYC Segment
+                String kycSegment = entity.getKycSegment() != null ? entity.getKycSegment() : "";
+                line.append(kycSegment).append(";");
+
+                // 5. Risk Industry
+                String riskInfo = "";
+                List<RiskIndustry> riskList = entity.getKycRiskIndustry();
+                if (riskList != null && !riskList.isEmpty()) {
+                    riskInfo = riskList.stream()
+                            .map(r -> {
+                                String code = r.getRiskIndustryCode() != null ? r.getRiskIndustryCode() : "";
+                                String desc = r.getRiskIndustryDescription() != null ? r.getRiskIndustryDescription() : "";
+                                return code + "-" + desc;
+                            })
+                            .collect(Collectors.joining("|"));
+                }
+                line.append(riskInfo).append("\n");
+
+                writer.write(line.toString());
             }
+
+            writer.flush();
+            System.out.println("✅ CSV exported to: " + filePath);
+
+        } catch (IOException e) {
+            System.err.println("❌ CSV export failed: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }
-
-
-
-
 
 
 
@@ -58,247 +95,35 @@ public class CSVReportService {
 
 package com.sunscreening.jsonreader.controller;
 
-import com.sunscreening.jsonreader.service.CSVReportService;
+import com.sunscreening.jsonreader.model.MergedOutput;
 import com.sunscreening.jsonreader.service.JsonReaderService;
+import com.sunscreening.jsonreader.util.CsvExportUtil;
 import lombok.RequiredArgsConstructor;
-import org.springframework.core.io.InputStreamResource;
-import org.springframework.core.io.Resource;
-import org.springframework.http.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
+import java.util.List;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/report")
 @RequiredArgsConstructor
-public class EntityController {
+public class CsvExportController {
 
     private final JsonReaderService jsonReaderService;
-    private final CSVReportService csvReportService;
 
-    @GetMapping("/kyc-details")
-    public ResponseEntity<?> getMergedOutput() {
-        return ResponseEntity.ok(jsonReaderService.mergeAndDisplayData());
+    @Value("${csv.output-path}")
+    private String csvOutputPath;
+
+    @GetMapping("/download")
+    public ResponseEntity<String> downloadCsvReport() {
+        // 1. Fetch merged data
+        List<MergedOutput> mergedData = jsonReaderService.mergeAndDisplayData();
+
+        // 2. Export to CSV
+        CsvExportUtil.exportToCsv(mergedData, csvOutputPath);
+
+        // 3. Return message
+        return ResponseEntity.ok("✅ CSV report generated at: " + csvOutputPath);
     }
-
-    @GetMapping("/download/csv")
-    public ResponseEntity<Resource> downloadCsv() {
-        try {
-            // Generate CSV file
-            String filePath = "src/main/resources/merged_report.csv";
-            csvReportService.generateCsvReport(filePath);
-
-            // Prepare the file for download
-            File file = new File(filePath);
-            if (!file.exists()) {
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(null);
-            }
-
-            InputStreamResource resource = new InputStreamResource(new FileInputStream(file));
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentDisposition(ContentDisposition.builder("attachment")
-                    .filename("merged_report.csv")
-                    .build());
-            headers.setContentType(MediaType.parseMediaType("text/csv"));
-
-            return ResponseEntity.ok()
-                    .headers(headers)
-                    .contentLength(file.length())
-                    .body(resource);
-
-        } catch (IOException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .build();
-        }
-    }
-}
-
-
-
-
-
-package org.example.util;
-
-import org.example.model.*;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
-
-public class CsvExportUtil {
-
-    public static void exportToCsv(List<MergedEntity> mergedEntities, String filePath) {
-        try (FileWriter writer = new FileWriter(filePath)) {
-
-            // Write CSV Header
-            writer.write("CRS CODE;Reg Address;Reg Address Country;Site BNPP;Site Country;Site Status;KYC Segment;RIC\n");
-
-            for (MergedEntity entity : mergedEntities) {
-                StringBuilder line = new StringBuilder();
-
-                // CRS CODE
-                String crsCode = Optional.ofNullable(entity.getIdentifiers())
-                        .map(Identifiers::getCrdsCode)
-                        .orElse("");
-                line.append(crsCode).append(";");
-
-                // Reg Address (Line1 + Line2 + City + State + Zipcode)
-                RegistrationAddress regAddr = entity.getRegistrationAddress();
-                String fullAddress = "";
-                String country = "";
-
-                if (regAddr != null) {
-                    fullAddress = String.join(" ",
-                            Optional.ofNullable(regAddr.getLine1()).orElse(""),
-                            Optional.ofNullable(regAddr.getLine2()).orElse(""),
-                            Optional.ofNullable(regAddr.getCity()).orElse(""),
-                            Optional.ofNullable(regAddr.getState()).orElse(""),
-                            Optional.ofNullable(regAddr.getZipCode()).orElse("") // ✅ Method must be named getZipCode()
-                    ).trim();
-
-                    country = Optional.ofNullable(regAddr.getCountry()).orElse("");
-                }
-
-                line.append(fullAddress).append(";");
-                line.append(country).append(";");
-
-                // KYC Sites (only first one)
-                List<KycSites> sites = entity.getKycSites();
-                String siteBnpp = "", siteCountry = "", siteStatus = "";
-
-                if (sites != null && !sites.isEmpty()) {
-                    KycSites site = sites.get(0);
-                    siteBnpp = Optional.ofNullable(site.getSiteBnpP()).orElse("");     // ✅ Method must exist
-                    siteCountry = Optional.ofNullable(site.getSiteCountry()).orElse(""); // ✅ Method must exist
-                    siteStatus = Optional.ofNullable(site.getSiteStatus()).orElse("");   // ✅ Method must exist
-                }
-
-                line.append(siteBnpp).append(";");
-                line.append(siteCountry).append(";");
-                line.append(siteStatus).append(";");
-
-                // KYC Segment
-                String segment = Optional.ofNullable(entity.getKycSegments()).orElse("");
-                line.append(segment).append(";");
-
-                // RIC (Risk Industry CODE-DESCRIPTION joined by "|")
-                String ric = "";
-                List<RiskIndustry> risks = entity.getRiskIndustry();
-                if (risks != null && !risks.isEmpty()) {
-                    ric = risks.stream()
-                            .map(r -> r.getRiskIndustryCode() + "-" + r.getRiskIndustryDescription())
-                            .collect(Collectors.joining("|"));
-                }
-
-                line.append(ric).append("\n");
-                writer.write(line.toString());
-            }
-
-            writer.flush();
-            System.out.println("CSV exported to: " + filePath);
-
-        } catch (IOException e) {
-            System.err.println("CSV export failed: " + e.getMessage());
-            e.printStackTrace(); // Consider replacing with proper logger if needed
-        }
-    }
-}
-
-
-
-
-
-
-
-package org.example.util;
-
-import org.example.model.*;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
-
-public class CsvExportUtil {
-
-    public static void exportToCsv(List<MergedEntity> mergedEntities, String filePath) {
-        try (FileWriter writer = new FileWriter(filePath)) {
-
-            // Write CSV Header
-            writer.write("CRS CODE;Reg Address;Reg Address Country;Site BNPP;Site Country;Site Status;KYC Segment;RIC\n");
-
-            for (MergedEntity entity : mergedEntities) {
-                StringBuilder line = new StringBuilder();
-
-                // CRS CODE
-                String crsCode = Optional.ofNullable(entity.getIdentifiers())
-                        .map(Identifiers::getCrdsCode)
-                        .orElse("");
-                line.append(crsCode).append(";");
-
-                // Reg Address (Line1 + Line2 + City + State + Zipcode)
-                RegistrationAddress regAddr = entity.getRegistrationAddress();
-                String fullAddress = "";
-                String country = "";
-
-                if (regAddr != null) {
-                    fullAddress = String.join(" ",
-                            Optional.ofNullable(regAddr.getLine1()).orElse(""),
-                            Optional.ofNullable(regAddr.getLine2()).orElse(""),
-                            Optional.ofNullable(regAddr.getCity()).orElse(""),
-                            Optional.ofNullable(regAddr.getState()).orElse(""),
-                            Optional.ofNullable(regAddr.getZipCode()).orElse("") // ✅ Method must be named getZipCode()
-                    ).trim();
-
-                    country = Optional.ofNullable(regAddr.getCountry()).orElse("");
-                }
-
-                line.append(fullAddress).append(";");
-                line.append(country).append(";");
-
-                // KYC Sites (only first one)
-                List<KycSites> sites = entity.getKycSites();
-                String siteBnpp = "", siteCountry = "", siteStatus = "";
-
-                if (sites != null && !sites.isEmpty()) {
-                    KycSites site = sites.get(0);
-                    siteBnpp = Optional.ofNullable(site.getSiteBnpP()).orElse("");     // ✅ Method must exist
-                    siteCountry = Optional.ofNullable(site.getSiteCountry()).orElse(""); // ✅ Method must exist
-                    siteStatus = Optional.ofNullable(site.getSiteStatus()).orElse("");   // ✅ Method must exist
-                }
-
-                line.append(siteBnpp).append(";");
-                line.append(siteCountry).append(";");
-                line.append(siteStatus).append(";");
-
-                // KYC Segment
-                String segment = Optional.ofNullable(entity.getKycSegments()).orElse("");
-                line.append(segment).append(";");
-
-                // RIC (Risk Industry CODE-DESCRIPTION joined by "|")
-                String ric = "";
-                List<RiskIndustry> risks = entity.getRiskIndustry();
-                if (risks != null && !risks.isEmpty()) {
-                    ric = risks.stream()
-                            .map(r -> r.getRiskIndustryCode() + "-" + r.getRiskIndustryDescription())
-                            .collect(Collectors.joining("|"));
-                }
-
-                line.append(ric).append("\n");
-                writer.write(line.toString());
-            }
-
-            writer.flush();
-            System.out.println("CSV exported to: " + filePath);
-
-        } catch (IOException e) {
-            System.err.println("CSV export failed: " + e.getMessage());
-            e.printStackTrace(); // Consider replacing with proper logger if needed
-        }
-    }
 }
