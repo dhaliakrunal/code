@@ -208,3 +208,97 @@ public class CsvExportUtil {
         }
     }
 }
+
+
+
+
+
+
+
+package org.example.util;
+
+import org.example.model.*;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+public class CsvExportUtil {
+
+    public static void exportToCsv(List<MergedEntity> mergedEntities, String filePath) {
+        try (FileWriter writer = new FileWriter(filePath)) {
+
+            // Write CSV Header
+            writer.write("CRS CODE;Reg Address;Reg Address Country;Site BNPP;Site Country;Site Status;KYC Segment;RIC\n");
+
+            for (MergedEntity entity : mergedEntities) {
+                StringBuilder line = new StringBuilder();
+
+                // CRS CODE
+                String crsCode = Optional.ofNullable(entity.getIdentifiers())
+                        .map(Identifiers::getCrdsCode)
+                        .orElse("");
+                line.append(crsCode).append(";");
+
+                // Reg Address (Line1 + Line2 + City + State + Zipcode)
+                RegistrationAddress regAddr = entity.getRegistrationAddress();
+                String fullAddress = "";
+                String country = "";
+
+                if (regAddr != null) {
+                    fullAddress = String.join(" ",
+                            Optional.ofNullable(regAddr.getLine1()).orElse(""),
+                            Optional.ofNullable(regAddr.getLine2()).orElse(""),
+                            Optional.ofNullable(regAddr.getCity()).orElse(""),
+                            Optional.ofNullable(regAddr.getState()).orElse(""),
+                            Optional.ofNullable(regAddr.getZipCode()).orElse("") // ✅ Method must be named getZipCode()
+                    ).trim();
+
+                    country = Optional.ofNullable(regAddr.getCountry()).orElse("");
+                }
+
+                line.append(fullAddress).append(";");
+                line.append(country).append(";");
+
+                // KYC Sites (only first one)
+                List<KycSites> sites = entity.getKycSites();
+                String siteBnpp = "", siteCountry = "", siteStatus = "";
+
+                if (sites != null && !sites.isEmpty()) {
+                    KycSites site = sites.get(0);
+                    siteBnpp = Optional.ofNullable(site.getSiteBnpP()).orElse("");     // ✅ Method must exist
+                    siteCountry = Optional.ofNullable(site.getSiteCountry()).orElse(""); // ✅ Method must exist
+                    siteStatus = Optional.ofNullable(site.getSiteStatus()).orElse("");   // ✅ Method must exist
+                }
+
+                line.append(siteBnpp).append(";");
+                line.append(siteCountry).append(";");
+                line.append(siteStatus).append(";");
+
+                // KYC Segment
+                String segment = Optional.ofNullable(entity.getKycSegments()).orElse("");
+                line.append(segment).append(";");
+
+                // RIC (Risk Industry CODE-DESCRIPTION joined by "|")
+                String ric = "";
+                List<RiskIndustry> risks = entity.getRiskIndustry();
+                if (risks != null && !risks.isEmpty()) {
+                    ric = risks.stream()
+                            .map(r -> r.getRiskIndustryCode() + "-" + r.getRiskIndustryDescription())
+                            .collect(Collectors.joining("|"));
+                }
+
+                line.append(ric).append("\n");
+                writer.write(line.toString());
+            }
+
+            writer.flush();
+            System.out.println("CSV exported to: " + filePath);
+
+        } catch (IOException e) {
+            System.err.println("CSV export failed: " + e.getMessage());
+            e.printStackTrace(); // Consider replacing with proper logger if needed
+        }
+    }
+}
