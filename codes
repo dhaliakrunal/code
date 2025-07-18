@@ -1,55 +1,152 @@
-package com.sunscreening.jsonreader.util;
+public List<MergedOutput> mergeAndDisplayData() throws IOException {
+    ObjectMapper mapper = new ObjectMapper();
+    mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-import com.sunscreening.jsonreader.model.*;
+    System.out.println("🔍 Fetching access token...");
+    String accessToken = fetchAccessTokenFromHeader();
+    System.out.println("✅ Access token received.");
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(accessToken);
+    headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+    headers.set("Accept", "*/*;version=gamma");
+
+    HttpEntity<Void> request = new HttpEntity<>(headers);
+
+    System.out.println("🌐 Calling Entities API: " + apiProperties.getEntitiesUrl());
+    ResponseEntity<String> entityResponse = restTemplate.exchange(
+            apiProperties.getEntitiesUrl(),
+            HttpMethod.GET,
+            request,
+            String.class
+    );
+
+    List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
+
+    List<Integer> allPtyIds = wrappers.stream()
+            .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+            .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream())
+            .map(Identifiers::getPtyId)
+            .filter(Objects::nonNull)
+            .distinct()
+            .toList();
+
+    List<MergedOutput> mergedResults = allPtyIds.stream()
+            .flatMap(ptyId -> {
+                String kycUrlWithPtyId = apiProperties.getKycUrl() + "?ptyId=" + ptyId;
+                System.out.println("🌐 Calling KYC API for ptyId=" + ptyId);
+
+                ResponseEntity<String> kycResponse = restTemplate.exchange(
+                        kycUrlWithPtyId,
+                        HttpMethod.GET,
+                        request,
+                        String.class
+                );
+
+                List<KycDetails> kycList = Optional.ofNullable(kycResponse.getBody())
+                        .filter(body -> !body.isBlank())
+                        .map(body -> {
+                            try {
+                                JsonNode resultsNode = mapper.readTree(body).get("results");
+                                if (resultsNode != null && resultsNode.isArray() && !resultsNode.isEmpty()) {
+                                    return mapper.readValue(
+                                            resultsNode.toString(),
+                                            mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
+                                    );
+                                }
+                            } catch (IOException e) {
+                                throw new RuntimeException("Failed to parse KYC response", e);
+                            }
+                            return List.<KycDetails>of();
+                        }).orElse(List.of());
+
+                return wrappers.stream()
+                        .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
+                        .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
+                                .anyMatch(id -> ptyId.equals(id.getPtyId())))
+                        .map(wrapper -> {
+                            MergedOutput output = new MergedOutput();
+                            output.setIdentifiers(wrapper.getEntity().getIdentifiers());
+                            output.setBusinessGroup(wrapper.getBusinessGroup());
+
+                            kycList.stream()
+                                    .filter(kyc -> kyc.getKycData() != null && kyc.getIdentifiers() != null &&
+                                            kyc.getIdentifiers().stream().anyMatch(id -> ptyId.equals(id.getPtyId())))
+                                    .findFirst()
+                                    .ifPresent(kyc -> {
+                                        output.setKycSegment(kyc.getKycData().getKycSegment());
+                                        output.setKycSite(kyc.getKycData().getKycSite());
+                                        output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
+                                    });
+
+                            return output;
+                        });
+            })
+            .toList();
+
+    System.out.println("✅ Merging complete. Total records: " + mergedResults.size());
+    return mergedResults;
+}
+
+
+
+package com.example.service;
+
+import com.example.config.CsvFileProperties;
+import com.example.model.*;
+import org.springframework.stereotype.Service;
 
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class CsvExportUtil {
+@Service
+public class CsvReportService {
 
-    public static void exportToCsv(List<MergedOutput> mergedData, String filePath) {
+    private final CsvFileProperties csvFileProperties;
+
+    public CsvReportService(CsvFileProperties csvFileProperties) {
+        this.csvFileProperties = csvFileProperties;
+    }
+
+    public void exportToCsv(List<MergedEntity> mergedEntities) throws IOException {
+        String filePath = csvFileProperties.getOutputPath();
+
         try (FileWriter writer = new FileWriter(filePath)) {
 
-            // CSV Header
-            writer.write("CRDS CODE;Reg Address;Reg Address Country;BNPP Site;Site Country;Site Status;KYC Segment;Risk Industry\n");
+            // Header
+            writer.write("CRDS Code;Reg Address;Reg Address Country;BNPP Site;Site Country;Site Status;KYC Segment;Risk Industry Code-Desc\n");
 
-            for (MergedOutput entity : mergedData) {
+            for (MergedEntity entity : mergedEntities) {
                 StringBuilder line = new StringBuilder();
 
-                // 1. CRDS CODE
-                String crdsCode = "";
-                if (entity.getIdentifiers() != null && !entity.getIdentifiers().isEmpty()) {
-                    Identifiers id = entity.getIdentifiers().get(0);
-                    if (id.getCrdsCode() != null) {
-                        crdsCode = id.getCrdsCode();
-                    }
-                }
+                // CRDS Code
+                String crdsCode = entity.getIdentifiers() != null ? entity.getIdentifiers().getCrdsCode() : "";
                 line.append(crdsCode).append(";");
 
-                // 2. Registration Address + Country
-                String fullAddress = "";
-                String regCountry = "";
-                RegistrationAddress regAddress = entity.getRegistrationAddress();
-                if (regAddress != null) {
-                    String line1 = regAddress.getLine1() != null ? regAddress.getLine1() : "";
-                    String line2 = regAddress.getLine2() != null ? regAddress.getLine2() : "";
-                    String city = regAddress.getCity() != null ? regAddress.getCity() : "";
-                    String state = regAddress.getState() != null ? regAddress.getState() : "";
-                    String zip = regAddress.getZipCode() != null ? regAddress.getZipCode() : "";
-
-                    fullAddress = (line1 + " " + line2 + " " + city + " " + state + " " + zip).trim();
-                    regCountry = regAddress.getCountry() != null ? regAddress.getCountry() : "";
+                // Registration Address
+                RegistrationAddress reg = entity.getRegistrationAddress();
+                String regAddress = "", regCountry = "";
+                if (reg != null) {
+                    regAddress = String.join(" ",
+                        reg.getLine1() != null ? reg.getLine1() : "",
+                        reg.getLine2() != null ? reg.getLine2() : "",
+                        reg.getCity() != null ? reg.getCity() : "",
+                        reg.getState() != null ? reg.getState() : "",
+                        reg.getZipCode() != null ? reg.getZipCode() : ""
+                    ).trim();
+                    regCountry = reg.getCountry() != null ? reg.getCountry() : "";
                 }
-                line.append(fullAddress).append(";");
+                line.append(regAddress).append(";");
                 line.append(regCountry).append(";");
 
-                // 3. KYC Site
+                // KYC Site (first only)
                 String bnppSite = "", siteCountry = "", siteStatus = "";
-                if (entity.getKycSite() != null && !entity.getKycSite().isEmpty()) {
-                    KycSite site = entity.getKycSite().get(0);
-                    bnppSite = site.getSiteBnpp() != null ? site.getSiteBnpp() : "";
+                List<KycSites> kycSites = entity.getKycSites();
+                if (kycSites != null && !kycSites.isEmpty()) {
+                    KycSites site = kycSites.get(0);
+                    bnppSite = site.getSiteBnpP() != null ? site.getSiteBnpP() : "";
                     siteCountry = site.getSiteCountry() != null ? site.getSiteCountry() : "";
                     siteStatus = site.getSiteStatus() != null ? site.getSiteStatus() : "";
                 }
@@ -57,224 +154,25 @@ public class CsvExportUtil {
                 line.append(siteCountry).append(";");
                 line.append(siteStatus).append(";");
 
-                // 4. KYC Segment
-                String kycSegment = entity.getKycSegment() != null ? entity.getKycSegment() : "";
+                // KYC Segment
+                String kycSegment = entity.getKycSegments() != null ? entity.getKycSegments() : "";
                 line.append(kycSegment).append(";");
 
-                // 5. Risk Industry
-                String riskInfo = "";
-                List<RiskIndustry> riskList = entity.getKycRiskIndustry();
-                if (riskList != null && !riskList.isEmpty()) {
-                    riskInfo = riskList.stream()
-                            .map(r -> {
-                                String code = r.getRiskIndustryCode() != null ? r.getRiskIndustryCode() : "";
-                                String desc = r.getRiskIndustryDescription() != null ? r.getRiskIndustryDescription() : "";
-                                return code + "-" + desc;
-                            })
+                // Risk Industry Code-Description
+                String ric = "";
+                List<RiskIndustry> riskIndustries = entity.getRiskIndustry();
+                if (riskIndustries != null && !riskIndustries.isEmpty()) {
+                    ric = riskIndustries.stream()
+                            .map(r -> r.getRiskIndustryCode() + "-" + r.getRiskIndustryDescription())
                             .collect(Collectors.joining("|"));
                 }
-                line.append(riskInfo).append("\n");
+                line.append(ric);
 
+                line.append("\n");
                 writer.write(line.toString());
             }
 
             writer.flush();
-            System.out.println("✅ CSV exported to: " + filePath);
-
-        } catch (IOException e) {
-            System.err.println("❌ CSV export failed: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 }
-
-
-
-
-
-
-package com.sunscreening.jsonreader.controller;
-
-import com.sunscreening.jsonreader.model.MergedOutput;
-import com.sunscreening.jsonreader.service.JsonReaderService;
-import com.sunscreening.jsonreader.util.CsvExportUtil;
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-
-@RestController
-@RequestMapping("/api/report")
-@RequiredArgsConstructor
-public class CsvExportController {
-
-    private final JsonReaderService jsonReaderService;
-
-    @Value("${csv.output-path}")
-    private String csvOutputPath;
-
-    @GetMapping("/download")
-    public ResponseEntity<String> downloadCsvReport() {
-        // 1. Fetch merged data
-        List<MergedOutput> mergedData = jsonReaderService.mergeAndDisplayData();
-
-        // 2. Export to CSV
-        CsvExportUtil.exportToCsv(mergedData, csvOutputPath);
-
-        // 3. Return message
-        return ResponseEntity.ok("✅ CSV report generated at: " + csvOutputPath);
-    }
-}
-
-
-
-
-
-
-
-
-
-package com.sunscreening.jsonreader.controller;
-
-import com.sunscreening.jsonreader.config.CsvFileProperties;
-import com.sunscreening.jsonreader.model.MergedOutput;
-import com.sunscreening.jsonreader.service.JsonReaderService;
-import com.sunscreening.jsonreader.util.CsvExportUtil;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-
-@RestController
-@RequestMapping("/api/report")
-@RequiredArgsConstructor
-public class CsvExportController {
-
-    private final JsonReaderService jsonReaderService;
-    private final CsvFileProperties csvFileProperties;
-
-    @GetMapping("/download")
-    public ResponseEntity<String> downloadCsvReport() {
-        // Step 1: Fetch merged data
-        List<MergedOutput> mergedData = jsonReaderService.mergeAndDisplayData();
-
-        // Step 2: Export to CSV using configured path
-        String outputPath = csvFileProperties.getOutputPath();
-        CsvExportUtil.exportToCsv(mergedData, outputPath);
-
-        // Step 3: Return success response
-        return ResponseEntity.ok("✅ CSV report generated at: " + outputPath);
-    }
-}
-
-
-
-
-
-
-public List<MergedOutput> mergeAndDisplayData() {
-    List<MergedOutput> mergedResults = new ArrayList<>();
-
-    try {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-        System.out.println("🔍 Fetching access token...");
-        String accessToken = fetchAccessTokenFromHeader();
-        System.out.println("✅ Access token received.");
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(accessToken);
-        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-        headers.set("Accept", "*/*;version=gamma");
-
-        HttpEntity<Void> request = new HttpEntity<>(headers);
-
-        System.out.println("🌐 Calling Entities API: " + apiProperties.getEntitiesUrl());
-        ResponseEntity<String> entityResponse = restTemplate.exchange(
-                apiProperties.getEntitiesUrl(),
-                HttpMethod.GET,
-                request,
-                String.class
-        );
-
-        System.out.println("📦 Entity API response received. Parsing...");
-        List<Wrapper> wrappers = mapper.readValue(entityResponse.getBody(), EntityResponse.class).getResults();
-
-        List<Integer> allPtyIds = wrappers.stream()
-                .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
-                .flatMap(wrapper -> wrapper.getEntity().getIdentifiers().stream())
-                .map(Identifiers::getPtyId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-
-        for (Integer ptyId : allPtyIds) {
-            String kycUrlWithPtyId = apiProperties.getKycUrl() + "?ptyId=" + ptyId;
-            System.out.println("🌐 Calling KYC API for ptyId=" + ptyId);
-
-            ResponseEntity<String> kycResponse = restTemplate.exchange(
-                    kycUrlWithPtyId,
-                    HttpMethod.GET,
-                    request,
-                    String.class
-            );
-
-            JsonNode resultsNode = null;
-            List<KycDetails> kycList = new ArrayList<>();
-
-            if (kycResponse.getStatusCode().is2xxSuccessful() &&
-                kycResponse.getBody() != null && !kycResponse.getBody().isBlank()) {
-
-                System.out.println("📦 KYC API response received for ptyId=" + ptyId);
-                JsonNode root = mapper.readTree(kycResponse.getBody());
-                resultsNode = root.get("results");
-
-                if (resultsNode != null && resultsNode.isArray() && !resultsNode.isEmpty()) {
-                    kycList = mapper.readValue(
-                            resultsNode.toString(),
-                            mapper.getTypeFactory().constructCollectionType(List.class, KycDetails.class)
-                    );
-                } else {
-                    System.out.println("⚠️ No 'results' array found in KYC response for ptyId=" + ptyId);
-                }
-            } else {
-                System.out.println("❌ KYC API failed or empty for ptyId=" + ptyId);
-            }
-
-            wrappers.stream()
-                    .filter(wrapper -> wrapper.getEntity() != null && wrapper.getEntity().getIdentifiers() != null)
-                    .filter(wrapper -> wrapper.getEntity().getIdentifiers().stream()
-                            .anyMatch(id -> ptyId.equals(id.getPtyId())))
-                    .forEach(wrapper -> {
-                        MergedOutput output = new MergedOutput();
-                        output.setIdentifiers(wrapper.getEntity().getIdentifiers());
-                        output.setBusinessGroup(wrapper.getBusinessGroup());
-
-                        for (KycDetails kyc : kycList) {
-                            if (kyc != null && kyc.getKycData() != null && kyc.getIdentifiers() != null &&
-                                    kyc.getIdentifiers().stream().anyMatch(id -> ptyId.equals(id.getPtyId()))) {
-                                output.setKycSegment(kyc.getKycData().getKycSegment());
-                                output.setKycSite(kyc.getKycData().getKycSite());
-                                output.setKycRiskIndustry(kyc.getKycData().getRiskIndustry());
-                                break;
-                            }
-                        }
-
-                        mergedResults.add(output);
-                    });
-        }
-
-        System.out.println("✅ Merging complete. Total records: " + mergedResults.size());
-        return mergedResults;
-
-    } catch (Exception e) {
-        System.err.println("❌ Error during merge: " + e.getMessage());
-        e.printStackTrace(); // Log full stack trace for debugging
-        throw new RuntimeException("❌ Error during merge: " + e.getMessage(), e);
-    }
-}
-
