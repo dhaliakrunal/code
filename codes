@@ -82,3 +82,46 @@ public ResponseEntity<String> mergeAndSaveToDatabase() {
     mergedOutputPersistenceService.saveToH2Database(mergedData);
     return ResponseEntity.ok("Merged data saved to H2 database successfully.");
 }
+
+
+
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.entity.MergedOutputEntity;
+import com.example.jsonreader.model.Identifiers;
+import com.example.jsonreader.model.MergedOutput;
+import com.example.jsonreader.repository.MergedOutputRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class MergedOutputPersistenceService {
+
+    private final MergedOutputRepository repository;
+
+    public void saveToH2Database(List<MergedOutput> mergedData) {
+        List<MergedOutputEntity> entityList = mergedData.stream()
+                .map(data -> {
+                    Identifiers firstIdentifier = data.getIdentifiers() != null && !data.getIdentifiers().isEmpty()
+                            ? data.getIdentifiers().get(0)
+                            : new Identifiers();
+
+                    return MergedOutputEntity.builder()
+                            .crdsCode(firstIdentifier.getCrdsCode())
+                            .bnppSite(firstIdentifier.getBnppSite())
+                            .siteCountry(firstIdentifier.getSiteCountry())
+                            .siteStatus(firstIdentifier.getSiteStatus())
+                            .registrationAddress(firstIdentifier.getRegistrationAddress())
+                            .registrationCountry(firstIdentifier.getRegistrationCountry())
+                            .kycSegment(data.getKycSegment())
+                            .riskIndustry(data.getRiskIndustry())
+                            .build();
+                })
+                .toList();
+
+        repository.saveAll(entityList);
+    }
+}
