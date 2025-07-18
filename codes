@@ -244,3 +244,79 @@ return MergedEntity.builder()
                                 ? defaultIfNull(data.getKycRiskIndustry().getCode()) + "-" + defaultIfNull(data.getKycRiskIndustry().getDescription())
                                 : "")
                         .build();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.entity.MergedEntity;
+import com.example.jsonreader.model.*;
+import com.example.jsonreader.repository.MergedRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class MergedService {
+
+    private final MergedRepository repository;
+
+    public void saveToH2Database(List<MergedOutput> mergedData) {
+        List<MergedEntity> entityList = mergedData.stream()
+                .map(data -> {
+                    // Safe retrieval from List<Identifiers>
+                    Identifiers firstIdentifier = (data.getIdentifiers() != null && !data.getIdentifiers().isEmpty())
+                            ? data.getIdentifiers().get(0)
+                            : new Identifiers();
+
+                    // Safe retrieval from RegistrationAddress
+                    RegistrationAddress regAddress = data.getRegistrationAddress() != null
+                            ? data.getRegistrationAddress()
+                            : new RegistrationAddress();
+
+                    // Safe retrieval from List<KycSite>
+                    KycSite firstKycSite = (data.getKycSite() != null && !data.getKycSite().isEmpty())
+                            ? data.getKycSite().get(0)
+                            : new KycSite();
+
+                    // Safe retrieval from KycRiskIndustry
+                    KycRiskIndustry riskIndustry = data.getKycRiskIndustry() != null
+                            ? data.getKycRiskIndustry()
+                            : new KycRiskIndustry();
+
+                    return MergedEntity.builder()
+                            .crdsCode(defaultIfNull(firstIdentifier.getCrdsCode()))
+                            .registrationAddress(defaultIfNull(regAddress.getRegistrationAddress()))
+                            .registrationCountry(defaultIfNull(regAddress.getCountry()))
+                            .bnppSite(defaultIfNull(firstKycSite.getSiteBnppEntity()))
+                            .siteCountry(defaultIfNull(firstKycSite.getSiteCountry()))
+                            .siteStatus(defaultIfNull(firstKycSite.getSiteStatus()))
+                            .kycSegment(defaultIfNull(data.getKycSegment()))
+                            .riskIndustry(defaultIfNull(riskIndustry.getCode()) + "-" + defaultIfNull(riskIndustry.getDescription()))
+                            .build();
+                })
+                .toList();
+
+        repository.saveAll(entityList);
+    }
+
+    private String defaultIfNull(String value) {
+        return value != null ? value : "";
+    }
+}
+
