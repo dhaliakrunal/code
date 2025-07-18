@@ -223,3 +223,21 @@ public class MergedService {
         mergedRepo.saveAll(entities);
     }
 }
+
+
+
+
+
+
+return MergedEntity.builder()
+                        .crdsCode(firstIdentifier != null ? defaultIfNull(firstIdentifier.getCrdsCode()) : "")
+                        .registrationAddress(regAddress != null ? defaultIfNull(regAddress.getRegistrationAddress()) : "")
+                        .registrationCountry(regAddress != null ? defaultIfNull(regAddress.getCountry()) : "")
+                        .bnppSite(firstKycSite != null ? defaultIfNull(firstKycSite.getSiteBnppEntity()) : "")
+                        .siteCountry(firstKycSite != null ? defaultIfNull(firstKycSite.getSiteCountry()) : "")
+                        .siteStatus(firstKycSite != null ? defaultIfNull(firstKycSite.getSiteStatus()) : "")
+                        .kycSegment(defaultIfNull(data.getKycSegment()))
+                        .riskIndustry(data.getKycRiskIndustry() != null
+                                ? defaultIfNull(data.getKycRiskIndustry().getCode()) + "-" + defaultIfNull(data.getKycRiskIndustry().getDescription())
+                                : "")
+                        .build();
