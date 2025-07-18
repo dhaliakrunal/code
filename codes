@@ -228,6 +228,9 @@ public class MergedService {
 
 
 
+private String defaultIfNull(String value) {
+    return value != null ? value : "";
+}
 
 return MergedEntity.builder()
                         .crdsCode(firstIdentifier != null ? defaultIfNull(firstIdentifier.getCrdsCode()) : "")
