@@ -125,3 +125,58 @@ public class MergedOutputPersistenceService {
         repository.saveAll(entityList);
     }
 }
+
+
+
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.entity.MergedOutputEntity;
+import com.example.jsonreader.model.Identifiers;
+import com.example.jsonreader.model.KycSite;
+import com.example.jsonreader.model.MergedOutput;
+import com.example.jsonreader.repository.MergedOutputRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class MergedOutputPersistenceService {
+
+    private final MergedOutputRepository repository;
+
+    public void saveToH2Database(List<MergedOutput> mergedData) {
+        List<MergedOutputEntity> entityList = mergedData.stream()
+                .map(data -> {
+                    Identifiers firstIdentifier = data.getIdentifiers() != null && !data.getIdentifiers().isEmpty()
+                            ? data.getIdentifiers().get(0)
+                            : new Identifiers();
+
+                    String registrationAddress = firstIdentifier.getRegistrationAddress() != null
+                            ? firstIdentifier.getRegistrationAddress().getFullAddress()
+                            : null;
+
+                    String registrationCountry = firstIdentifier.getRegistrationAddress() != null
+                            ? firstIdentifier.getRegistrationAddress().getCountry()
+                            : null;
+
+                    KycSite kycSite = data.getKycSite();
+
+                    return MergedOutputEntity.builder()
+                            .crdsCode(firstIdentifier.getCrdsCode())
+                            .registrationAddress(registrationAddress)
+                            .registrationCountry(registrationCountry)
+                            .bnppSite(kycSite != null ? kycSite.getBnppSite() : null)
+                            .siteCountry(kycSite != null ? kycSite.getSiteCountry() : null)
+                            .siteStatus(kycSite != null ? kycSite.getSiteStatus() : null)
+                            .kycSegment(data.getKycSegment())
+                            .riskIndustry(data.getRiskIndustry())
+                            .build();
+                })
+                .toList();
+
+        repository.saveAll(entityList);
+    }
+}
+
