@@ -186,3 +186,40 @@ RegistrationAddress address = data.getRegistrationAddress() != null && !data.get
     ? data.getRegistrationAddress().get(0)
     : new RegistrationAddress();
 
+
+
+
+
+public class MergedService {
+
+    public void saveToH2Database(List<MergedOutput> mergedData) {
+        List<MergedEntity> entities = mergedData.stream()
+            .map(data -> {
+
+                Identifiers firstIdentifier = (data.getIdentifiers() != null && !data.getIdentifiers().isEmpty())
+                        ? data.getIdentifiers().get(0)
+                        : new Identifiers();
+
+                RegistrationAddress address = data.getRegistrationAddress();
+
+                KycSite kycSite = (data.getKycSite() != null && !data.getKycSite().isEmpty())
+                        ? data.getKycSite().get(0)
+                        : null;
+
+                return MergedEntity.builder()
+                        .crdsCode(firstIdentifier.getCrdsCode())
+                        .registrationAddress(address != null ? String.valueOf(address.getRegistrationAddress()) : null)
+                        .registrationCountry(address != null ? address.getCountry() : null)
+                        .bnppSite(kycSite != null ? kycSite.getSiteBnppEntity() : null)
+                        .siteCountry(kycSite != null ? kycSite.getSiteCountry() : null)
+                        .siteStatus(kycSite != null ? kycSite.getSiteStatus() : null)
+                        .kycSegment(data.getKycSegment())
+                        .riskIndustry(String.valueOf(data.getKycRiskIndustry()))
+                        .build();
+            })
+            .toList();
+
+        // Save to DB using your repository
+        mergedRepo.saveAll(entities);
+    }
+}
