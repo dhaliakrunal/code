@@ -180,3 +180,9 @@ public class MergedOutputPersistenceService {
     }
 }
 
+
+
+RegistrationAddress address = data.getRegistrationAddress() != null && !data.getRegistrationAddress().isEmpty()
+    ? data.getRegistrationAddress().get(0)
+    : new RegistrationAddress();
+
