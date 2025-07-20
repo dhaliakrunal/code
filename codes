@@ -386,3 +386,32 @@ List<String> addressParts = Arrays.asList(
 String registrationAddress = addressParts.stream()
     .filter(part -> !part.isBlank())
     .collect(Collectors.joining(", "));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+private String buildRegistrationAddress(RegistrationAddress address) {
+        if (address == null) return "";
+
+        List<String> addressParts = Arrays.asList(
+                defaultIfNull(address.getStreet()),
+                defaultIfNull(address.getCity()),
+                defaultIfNull(address.getState()),
+                defaultIfNull(address.getPostalCode())
+        );
+
+        return addressParts.stream()
+                .filter(part -> !part.isBlank())
+                .collect(Collectors.joining(", "));
+    }
