@@ -365,3 +365,24 @@ public class MergedEntity {
         if (riskIndustry == null) riskIndustry = "";
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+List<String> addressParts = Arrays.asList(
+    defaultIfNull(address.getStreet()),
+    defaultIfNull(address.getCity()),
+    defaultIfNull(address.getState()),
+    defaultIfNull(address.getPostalCode())
+);
+
+String registrationAddress = addressParts.stream()
+    .filter(part -> !part.isBlank())
+    .collect(Collectors.joining(", "));
