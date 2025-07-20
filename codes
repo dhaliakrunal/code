@@ -320,3 +320,48 @@ public class MergedService {
     }
 }
 
+
+
+
+
+
+package com.example.jsonreader.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+@Entity
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(name = "merged_entity")
+public class MergedEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String crdsCode;
+    private String registrationAddress;
+    private String registrationCountry;
+    private String bnppSite;
+    private String siteCountry;
+    private String siteStatus;
+    private String kycSegment;
+    private String riskIndustry;
+
+    // This method sets all nulls to empty string before insert/update
+    @PrePersist
+    @PreUpdate
+    public void prePersist() {
+        if (crdsCode == null) crdsCode = "";
+        if (registrationAddress == null) registrationAddress = "";
+        if (registrationCountry == null) registrationCountry = "";
+        if (bnppSite == null) bnppSite = "";
+        if (siteCountry == null) siteCountry = "";
+        if (siteStatus == null) siteStatus = "";
+        if (kycSegment == null) kycSegment = "";
+        if (riskIndustry == null) riskIndustry = "";
+    }
+}
