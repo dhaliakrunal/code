@@ -415,3 +415,99 @@ private String buildRegistrationAddress(RegistrationAddress address) {
                 .filter(part -> !part.isBlank())
                 .collect(Collectors.joining(", "));
     }
+
+
+
+package com.example.jsonreader.service;
+
+import com.example.jsonreader.entity.MergedEntity;
+import com.example.jsonreader.repository.MergedRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class CsvReaderService {
+
+    private final MergedRepository mergedRepository;
+
+    public void readCsvAndSaveToDatabase(String csvPath) {
+        List<MergedEntity> mergedEntities = new ArrayList<>();
+
+        try (BufferedReader br = new BufferedReader(new FileReader(csvPath))) {
+            String line;
+            boolean isHeader = true;
+
+            while ((line = br.readLine()) != null) {
+                if (isHeader) {
+                    isHeader = false;
+                    continue;
+                }
+
+                String[] data = line.split(";", -1); // -1 to retain empty values
+
+                String crdsCode = getValue(data, 0);
+                String bnppSite = getValue(data, 1);
+                String siteStatus = getValue(data, 2);
+                String kycSegment = getValue(data, 3);
+                String riskIndustryCode = getValue(data, 4);
+                String riskIndustryDescription = getValue(data, 5);
+
+                String riskIndustry = "";
+                if (!riskIndustryCode.isEmpty() || !riskIndustryDescription.isEmpty()) {
+                    riskIndustry = riskIndustryCode + "-" + riskIndustryDescription;
+                }
+
+                MergedEntity entity = MergedEntity.builder()
+                        .crdsCode(crdsCode)
+                        .bnppSite(bnppSite)
+                        .siteStatus(siteStatus)
+                        .kycSegment(kycSegment)
+                        .riskIndustry(riskIndustry)
+                        .build();
+
+                mergedEntities.add(entity);
+            }
+
+            mergedRepository.saveAll(mergedEntities);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private String getValue(String[] data, int index) {
+        if (index >= data.length || data[index] == null || data[index].trim().equalsIgnoreCase("null")) {
+            return "";
+        }
+        return data[index].trim();
+    }
+}
+
+
+
+package com.example.jsonreader.controller;
+
+import com.example.jsonreader.service.CsvReaderService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/csv")
+@RequiredArgsConstructor
+public class CsvController {
+
+    private final CsvReaderService csvReaderService;
+
+    @PostMapping("/import")
+    public ResponseEntity<String> importCsv() {
+        String path = "src/main/resources/merged_data.csv";
+        csvReaderService.readCsvAndSaveToDatabase(path);
+        return ResponseEntity.ok("CSV imported into H2 DB successfully");
+    }
+}
