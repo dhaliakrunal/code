@@ -511,3 +511,67 @@ public class CsvController {
         return ResponseEntity.ok("CSV imported into H2 DB successfully");
     }
 }
+
+
+
+
+package com.sunscreening.jsonreader.service;
+
+import com.sunscreening.jsonreader.entity.MergedOutputEntity;
+import com.sunscreening.jsonreader.repository.MergedOutputRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class CsvToDatabaseService {
+
+    private final MergedOutputRepository repository;
+
+    public void readCsvAndSaveToDatabase(String csvFilePath) {
+        List<MergedOutputEntity> entityList = new ArrayList<>();
+
+        try (BufferedReader br = new BufferedReader(new FileReader(csvFilePath))) {
+            String line;
+            boolean isFirstLine = true;
+
+            while ((line = br.readLine()) != null) {
+                if (isFirstLine) { // skip header
+                    isFirstLine = false;
+                    continue;
+                }
+
+                String[] values = line.split(";", -1); // -1 keeps empty strings
+
+                MergedOutputEntity entity = MergedOutputEntity.builder()
+                        .crdsCode(defaultIfNull(values[0]))
+                        .registrationAddress(defaultIfNull(values[1]))
+                        .registrationCountry(defaultIfNull(values[2]))
+                        .bnppSite(defaultIfNull(values[3]))
+                        .siteCountry(defaultIfNull(values[4]))
+                        .siteStatus(defaultIfNull(values[5]))
+                        .kycSegment(defaultIfNull(values[6]))
+                        .riskIndustry(defaultIfNull(values[7]))
+                        .build();
+
+                entityList.add(entity);
+            }
+
+            repository.saveAll(entityList);
+            System.out.println("CSV Data saved to H2 database.");
+
+        } catch (Exception e) {
+            System.err.println("Error reading CSV: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private String defaultIfNull(String value) {
+        return (value == null || value.trim().isEmpty()) ? "" : value.trim();
+    }
+}
