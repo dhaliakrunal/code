@@ -1,3 +1,84 @@
+package com.sunscreening.jsonreader.entity;
+
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+public class MergedOutputEntityTest {
+
+    @Test
+    void testMergedOutputEntityWithDynamicValues() {
+        // Generate dynamic test data
+        String crdsCode = UUID.randomUUID().toString();
+        String regAddressCountry = UUID.randomUUID().toString();
+        String bnppSite = UUID.randomUUID().toString();
+        String siteCountry = UUID.randomUUID().toString().substring(0, 2).toUpperCase();
+        String siteStatus = UUID.randomUUID().toString();
+        String kycSegment = UUID.randomUUID().toString();
+        String riskIndustryCode = UUID.randomUUID().toString();
+        String riskIndustryDescription = UUID.randomUUID().toString();
+        String businessGroup = UUID.randomUUID().toString();
+
+        String city = UUID.randomUUID().toString();
+        String postalCode = String.valueOf(ThreadLocalRandom.current().nextInt(100000, 999999));
+        int ptyId = ThreadLocalRandom.current().nextInt(100, 999);
+        int kycId = ThreadLocalRandom.current().nextInt(1000, 9999);
+        String identifierCrdsCode = crdsCode;
+
+        // Build embedded address
+        RegistrationAddress address = RegistrationAddress.builder()
+                .city(city)
+                .country(regAddressCountry)
+                .postalCode(postalCode)
+                .build();
+
+        // Build identifier
+        Identifiers identifier = Identifiers.builder()
+                .ptyId(ptyId)
+                .crdsCode(identifierCrdsCode)
+                .kycId(kycId)
+                .build();
+
+        // Build main entity
+        MergedOutputEntity entity = MergedOutputEntity.builder()
+                .crdsCode(crdsCode)
+                .regAddressCountry(regAddressCountry)
+                .bnppSite(bnppSite)
+                .siteCountry(siteCountry)
+                .siteStatus(siteStatus)
+                .kycSegment(kycSegment)
+                .riskIndustryCode(riskIndustryCode)
+                .riskIndustryDescription(riskIndustryDescription)
+                .businessGroup(businessGroup)
+                .registrationAddress(address)
+                .identifiers(List.of(identifier))
+                .build();
+
+        // Assertions (still without getters or hardcoding)
+        assertAll("MergedOutputEntity dynamic values",
+                () -> assertEquals(crdsCode, entity.crdsCode),
+                () -> assertEquals(regAddressCountry, entity.regAddressCountry),
+                () -> assertEquals(bnppSite, entity.bnppSite),
+                () -> assertEquals(siteCountry, entity.siteCountry),
+                () -> assertEquals(siteStatus, entity.siteStatus),
+                () -> assertEquals(kycSegment, entity.kycSegment),
+                () -> assertEquals(riskIndustryCode, entity.riskIndustryCode),
+                () -> assertEquals(riskIndustryDescription, entity.riskIndustryDescription),
+                () -> assertEquals(businessGroup, entity.businessGroup),
+                () -> assertEquals(city, entity.registrationAddress.city),
+                () -> assertEquals(regAddressCountry, entity.registrationAddress.country),
+                () -> assertEquals(postalCode, entity.registrationAddress.postalCode),
+                () -> assertEquals(1, entity.identifiers.size()),
+                () -> assertEquals(identifierCrdsCode, entity.identifiers.get(0).crdsCode),
+                () -> assertEquals(ptyId, entity.identifiers.get(0).ptyId),
+                () -> assertEquals(kycId, entity.identifiers.get(0).kycId)
+        );
+    }
+}
 package com.example.jsonreader.entity;
 
 import jakarta.persistence.*;
